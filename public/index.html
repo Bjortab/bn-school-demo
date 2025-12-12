@@ -9,9 +9,7 @@
 <body>
   <header class="app-header">
     <h1>BN-Skola v1 – Lärande genom äventyr</h1>
-    <p class="tagline">
-      Läraren styr faktan. Eleven styr äventyret.
-    </p>
+    <p class="tagline">Läraren styr faktan. Eleven styr äventyret.</p>
   </header>
 
   <nav class="mode-switcher">
@@ -93,16 +91,36 @@ Kunna nämna tre grekiska gudar."
         </div>
       </div>
 
+      <!-- NYTT: lärarstyrning -->
+      <div class="teacher-controls">
+        <div class="form-group">
+          <label for="max-chapters-select">Max antal kapitel</label>
+          <select id="max-chapters-select">
+            <option value="3">3</option>
+            <option value="4" selected>4</option>
+            <option value="5">5</option>
+            <option value="6">6</option>
+            <option value="8">8</option>
+          </select>
+        </div>
+
+        <div class="form-group">
+          <label for="length-select">Kapitel-längd</label>
+          <select id="length-select">
+            <option value="kort" selected>Kort</option>
+            <option value="normal">Normal</option>
+            <option value="lång">Lång</option>
+          </select>
+        </div>
+      </div>
+
       <div class="button-row">
-        <button id="save-mission-btn" class="primary-button">
-          Spara lektionsuppdrag
-        </button>
+        <button id="save-mission-btn" class="primary-button">Spara lektionsuppdrag</button>
+        <button id="reset-story-btn-teacher" class="secondary-button">Rensa saga</button>
         <span id="teacher-status" class="status-text"></span>
       </div>
 
-      <section class="saved-mission" id="saved-mission">
-        <!-- Fylls i från app.js när uppdrag finns -->
-      </section>
+      <section class="saved-mission" id="saved-mission"></section>
     </section>
 
     <!-- ELEV-LÄGE -->
@@ -112,9 +130,7 @@ Kunna nämna tre grekiska gudar."
         Eleven skriver sin idé, BN-Skola väver ihop den med lärarens fakta.
       </p>
 
-      <section id="lesson-summary" class="lesson-summary">
-        <!-- Visar ämne, stil, mål osv -->
-      </section>
+      <section id="lesson-summary" class="lesson-summary"></section>
 
       <div class="form-group">
         <label for="student-prompt-input">Elevens idé / prompt</label>
@@ -126,23 +142,22 @@ Kunna nämna tre grekiska gudar."
       </div>
 
       <div class="button-row">
-        <button id="generate-chapter-btn" class="primary-button">
-          Starta första kapitlet
-        </button>
+        <button id="generate-chapter-btn" class="primary-button">Starta första kapitlet</button>
+        <button id="reset-story-btn-student" class="secondary-button">Rensa saga</button>
         <span id="student-status" class="status-text"></span>
       </div>
 
-      <section id="chapter-meta" class="chapter-meta">
-        <!-- Kapitelinfo -->
-      </section>
+      <!-- NYTT: kapitelval -->
+      <div class="chapter-history">
+        <label for="chapter-select">Visa kapitel</label>
+        <select id="chapter-select">
+          <option value="latest">Senaste</option>
+        </select>
+      </div>
 
-      <section id="story-output" class="story-output">
-        <!-- Själva berättelsetexten -->
-      </section>
-
-      <section id="questions-output" class="questions-output">
-        <!-- Reflektionsfrågor -->
-      </section>
+      <section id="chapter-meta" class="chapter-meta"></section>
+      <section id="story-output" class="story-output"></section>
+      <section id="questions-output" class="questions-output"></section>
     </section>
   </main>
 
