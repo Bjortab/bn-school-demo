@@ -1,5 +1,5 @@
 // functions/api/bnschool_generate.js
-// BN-Skola v1 – StoryEngine backend för Cloudflare Pages Functions
+// BN-Skola v1.1 (SAFE PATCH) – Endast: Tone/Tempo v1 + 3 reflektionsfrågor + idempotent previousChapters
 
 export async function onRequestPost(context) {
   const { request, env } = context;
@@ -35,60 +35,66 @@ export async function onRequestPost(context) {
         ? incomingWorldState.chapterIndex + 1
         : 1;
 
+    // ---------------------------
+    // System & Tone Prompt v1 (LOCKED)
+    // ---------------------------
     const systemPrompt = `
 Du är BN-School StoryEngine v1.
 
-Ditt uppdrag:
-- Skapa pedagogiska, engagerande äventyrsberättelser för elever i åldern 7–15 år.
-- Du får:
-  - lärarens lektionsuppdrag (fakta, lärandemål, årskurs, stil)
-  - elevens fria prompt (idé, fantasi)
-  - worldstate (tidigare kapitel och sammanfattning)
+ROLL:
+- Du är en MEDSPELARE i elevens äventyr – inte en föreläsare.
+- Du skriver ALLTID i andra person ("du") och talar direkt till eleven.
 
-Grundregler:
+TON (LÅST):
+1) Trygg & varm (alltid bas)
+2) Äventyrlig & spännande
+3) Lätt humor & lek (diskret, aldrig flams, aldrig sarkasm)
+
+TEMPO (LÅST – C):
+Varje kapitel följer "Lugnt -> Spännande -> Lugnt":
+- Lugnt: trygg start, orientering, varm närvaro
+- Spännande: händelse/val/mysterium
+- Lugnt: avrundning, förståelse, mjuk bro till nästa
+
+GRUNDREGLER:
 - Lärarens fakta är LAG. Du får inte ändra eller motsäga dem.
-- Elevens idéer ska vävas in på ett lekfullt sätt, men får inte förstöra faktan.
-- Skriv på enkel, tydlig svenska anpassad till årskursen.
-- Berättelsen ska kännas som ett äventyr eller berättelse, inte som en torr faktatext.
-- Avsluta kapitlet på ett sätt som gör att man vill läsa nästa del (men utan cliffhanger som är för brutal).
-- Om läraren har markerat att berättelsen ska vara interaktiv ska du:
-  - låta karaktärerna ställa frågor
-  - bjuda in eleven att tänka själv
-- Du får inte skriva olämpligt innehåll: inget våld som glorifieras, ingen sex, inga svordomar.
+- Elevens idé vävs in lekfullt utan att förstöra faktan.
+- Enkelt, tydligt språk anpassat till årskurs.
+- Undvik opersonlig, neutral "lärobokston".
+- Inga meta-kommentarer (t.ex. "som en AI...").
+- Inget olämpligt innehåll: inget våld som glorifieras, ingen sex, inga svordomar.
 
-Reflektionsfrågor:
-- Efter själva berättelsen ska du skapa 2–4 frågor som:
-  - hjälper eleven att tänka kring det som hänt
-  - knyter an till fakta och lärandemål
-  - kan användas som underlag för klassrumsdiskussion
+INTERAKTION:
+Om läraren markerat interaktivt läge:
+- Låt karaktärer ställa enkla frågor till "du"
+- Bjud in eleven att tänka/ta val
 
-Outputformat:
-- Du måste ALLTID svara med ENBART ren JSON (ingen markdown, inget snack runt omkring).
-- Struktur (exakt):
+REFLEKTIONSFRÅGOR (EXAKT 3 – LÅST):
+Efter kapitlet ska du skapa EXAKT tre frågor i denna ordning:
+1) Faktafråga (enkel, trygg)
+2) Förståelsefråga (kopplar fakta till berättelsen)
+3) Personlig reflektionsfråga (inget rätt/fel)
+
+OUTPUTFORMAT:
+Du måste ALLTID svara med ENBART ren JSON och exakt denna struktur:
 
 {
   "chapter_text": "Själva berättelsen som en sammanhängande text.",
   "reflection_questions": [
-    "En första diskussionsfråga...",
-    "En andra diskussionsfråga..."
+    "Fråga 1...",
+    "Fråga 2...",
+    "Fråga 3..."
   ],
   "worldstate": {
     "chapterIndex": 1,
-    "summary_for_next": "En kort sammanfattning av kapitlet att använda som kontext för nästa kapitel.",
-    "previousChapters": [
-      {
-        "chapterIndex": 1,
-        "title": "En kort kapiteltitel om det behövs",
-        "short_summary": "En väldigt kort sammanfattning av vad som hände i kapitlet."
-      }
-    ]
+    "summary_for_next": "Kort sammanfattning att använda som kontext för nästa kapitel.",
+    "previousChapters": []
   }
 }
 
 VIKTIGT:
-- Håll dig strikt till ovanstående JSON-struktur.
-- Inga kommentarer, inga extra fält som inte efterfrågas.
-- Om du återanvänder previousChapters ska du lägga till det senaste kapitlet sist i listan.
+- Inga extra fält. Inga kommentarer. Inget runt omkring.
+- Håll dig strikt till JSON-strukturen ovan.
 `.trim();
 
     const userPayload = {
@@ -111,10 +117,7 @@ VIKTIGT:
         response_format: { type: "json_object" },
         messages: [
           { role: "system", content: systemPrompt },
-          {
-            role: "user",
-            content: JSON.stringify(userPayload)
-          }
+          { role: "user", content: JSON.stringify(userPayload) }
         ]
       })
     });
@@ -156,31 +159,64 @@ VIKTIGT:
       };
     }
 
+    // ---------------------------
+    // Enforce: EXAKT 3 reflektionsfrågor (fallback om modellen spårar)
+    // ---------------------------
+    const qClean = (s) => (typeof s === "string" ? s.trim().replace(/\s+/g, " ") : "");
+    let rq = Array.isArray(parsed.reflection_questions) ? parsed.reflection_questions.map(qClean).filter(Boolean) : [];
+
+    const topic = (teacherMission && typeof teacherMission.topic === "string") ? teacherMission.topic : "ämnet";
+    const fallback1 = `Vilka viktiga saker handlade kapitlet om kring ${topic}?`;
+    const fallback2 = `Varför var det som hände i kapitlet viktigt för att förstå ${topic}?`;
+    const fallback3 = `Vad hade du själv valt att göra nu - och varför?`;
+
+    if (rq.length >= 3) rq = rq.slice(0, 3);
+    while (rq.length < 3) {
+      if (rq.length === 0) rq.push(fallback1);
+      else if (rq.length === 1) rq.push(fallback2);
+      else rq.push(fallback3);
+    }
+
+    // ---------------------------
+    // Worldstate: previousChapters (idempotent vid retry)
+    // ---------------------------
     const previousChapters =
       parsed.worldstate?.previousChapters ||
       incomingWorldState.previousChapters ||
       [];
 
-    // Lägg till aktuellt kapitel i historiken om det inte redan gjorts
-    const updatedPrevious = [
-      ...previousChapters,
-      {
-        chapterIndex,
-        title: "",
-        short_summary: parsed.worldstate?.summary_for_next || ""
+    const summaryForNext = (parsed.worldstate && typeof parsed.worldstate.summary_for_next === "string")
+      ? parsed.worldstate.summary_for_next
+      : "";
+
+    let updatedPrevious;
+    if (Array.isArray(previousChapters) && previousChapters.length > 0) {
+      const last = previousChapters[previousChapters.length - 1];
+      if (last && last.chapterIndex === chapterIndex) {
+        updatedPrevious = [
+          ...previousChapters.slice(0, -1),
+          { chapterIndex, title: last.title || "", short_summary: summaryForNext }
+        ];
+      } else {
+        updatedPrevious = [
+          ...previousChapters,
+          { chapterIndex, title: "", short_summary: summaryForNext }
+        ];
       }
-    ];
+    } else {
+      updatedPrevious = [{ chapterIndex, title: "", short_summary: summaryForNext }];
+    }
 
     const responseWorldstate = {
       chapterIndex,
-      summary_for_next: parsed.worldstate?.summary_for_next || "",
+      summary_for_next: summaryForNext,
       previousChapters: updatedPrevious
     };
 
     const responseJson = {
       chapterIndex,
       chapterText: parsed.chapter_text || "",
-      reflectionQuestions: parsed.reflection_questions || [],
+      reflectionQuestions: rq,
       worldstate: responseWorldstate
     };
 
@@ -188,6 +224,7 @@ VIKTIGT:
       status: 200,
       headers: corsHeaders
     });
+
   } catch (err) {
     console.error("Oväntat fel i bnschool_generate:", err);
     return new Response(
@@ -198,7 +235,6 @@ VIKTIGT:
 }
 
 export async function onRequestOptions() {
-  // En enkel CORS-OPTIONS om det skulle behövas
   return new Response(null, {
     status: 204,
     headers: {
