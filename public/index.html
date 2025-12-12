@@ -1,155 +1,158 @@
-<!DOCTYPE html>
+// ===============================
+// public/index.html
+// BN-Skola v1.1 – demo för Region Dalarna
+// ===============================
+<!doctype html>
 <html lang="sv">
 <head>
-  <meta charset="UTF-8" />
-  <title>BN-Skola v1 – Demo</title>
+  <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <link rel="stylesheet" href="styles.css" />
+  <title>BN-Skola v1 – Lärande genom äventyr</title>
+  <link rel="stylesheet" href="/styles.css" />
 </head>
 <body>
-  <header class="app-header">
-    <h1>BN-Skola v1 – Lärande genom äventyr</h1>
-    <p class="tagline">
-      Läraren styr faktan. Eleven styr äventyret.
-    </p>
+  <header class="topbar">
+    <div class="topbar-inner">
+      <h1>BN-Skola v1 – Lärande genom äventyr</h1>
+      <p class="subtitle">Läraren styr faktan. Eleven styr äventyret.</p>
+    </div>
   </header>
 
-  <nav class="mode-switcher">
-    <button id="mode-teacher" class="mode-button active">Lärarläge</button>
-    <button id="mode-student" class="mode-button">Elevläge</button>
-  </nav>
+  <main class="container">
+    <div class="tabs">
+      <button id="tabTeacher" class="tab active" type="button">Lärarläge</button>
+      <button id="tabStudent" class="tab" type="button">Elevläge</button>
+    </div>
 
-  <main class="app-main">
+    <!-- ========================= -->
     <!-- LÄRARLÄGE -->
-    <section id="teacher-panel" class="panel">
+    <!-- ========================= -->
+    <section id="teacherView" class="card">
       <h2>Lektionsuppdrag</h2>
-      <p class="panel-intro">
-        Fyll i ämne, fakta och lärandemål. Det här blir ramen för elevens äventyr.
-      </p>
+      <p class="muted">Fyll i ämne, fakta och lärandemål. Det här blir ramen för elevens äventyr.</p>
 
-      <div class="form-grid">
-        <div class="form-group">
-          <label for="topic-input">Ämne / område</label>
-          <input
-            id="topic-input"
-            type="text"
-            placeholder="Ex: Grekisk mytologi, Vattenkretsloppet, Medeltiden"
-          />
+      <div class="grid2">
+        <div class="field">
+          <label for="teacherTopic">Ämne / område</label>
+          <input id="teacherTopic" type="text" placeholder="T.ex. Grekisk mytologi" />
         </div>
 
-        <div class="form-group">
-          <label for="facts-input">Fakta (en rad per punkt)</label>
-          <textarea
-            id="facts-input"
-            rows="5"
-            placeholder="Ex:
-Zeus är himlens gud.
-Athena är vishetens gudinna.
-Poseidon styr havet."
-          ></textarea>
+        <div class="field">
+          <label for="teacherFacts">Fakta (en rad per punkt)</label>
+          <textarea id="teacherFacts" rows="5" placeholder="Zeus är himlens gud&#10;Athena är vishetens gudinna"></textarea>
         </div>
 
-        <div class="form-group">
-          <label for="goals-input">Lärandemål (en rad per mål)</label>
-          <textarea
-            id="goals-input"
-            rows="4"
-            placeholder="Ex:
-Förstå vad mytologi är.
-Kunna nämna tre grekiska gudar."
-          ></textarea>
+        <div class="field">
+          <label for="teacherGoals">Lärandemål (en rad per mål)</label>
+          <textarea id="teacherGoals" rows="3" placeholder="Kunna nämna tre grekiska gudar"></textarea>
         </div>
 
-        <div class="form-group">
-          <label for="grade-select">Årskurs</label>
-          <select id="grade-select">
-            <option value="">Välj årskurs...</option>
-            <option value="2">Åk 2</option>
-            <option value="3">Åk 3</option>
-            <option value="4">Åk 4</option>
-            <option value="5">Åk 5</option>
-            <option value="6">Åk 6</option>
-            <option value="7">Åk 7</option>
-            <option value="8">Åk 8</option>
-            <option value="9">Åk 9</option>
+        <div class="field">
+          <label for="teacherGrade">Årskurs</label>
+          <select id="teacherGrade">
+            <option value="Ak 1">Åk 1</option>
+            <option value="Ak 2">Åk 2</option>
+            <option value="Ak 3">Åk 3</option>
+            <option value="Ak 4" selected>Åk 4</option>
+            <option value="Ak 5">Åk 5</option>
+            <option value="Ak 6">Åk 6</option>
+            <option value="Ak 7">Åk 7</option>
+            <option value="Ak 8">Åk 8</option>
+            <option value="Ak 9">Åk 9</option>
           </select>
         </div>
 
-        <div class="form-group">
-          <label for="style-select">Berättelsestil</label>
-          <select id="style-select">
-            <option value="äventyrlig">Äventyrlig</option>
-            <option value="mystisk">Mystisk</option>
-            <option value="rolig">Rolig</option>
-            <option value="realistisk">Mer realistisk</option>
+        <div class="field">
+          <label for="teacherStyle">Berättelsestil</label>
+          <select id="teacherStyle">
+            <option value="Äventyrlig" selected>Äventyrlig</option>
+            <option value="Mystisk">Mystisk</option>
+            <option value="Rolig">Rolig</option>
+            <option value="Mer realistisk">Mer realistisk</option>
           </select>
         </div>
 
-        <div class="form-group form-group-inline">
-          <label class="checkbox-label">
-            <input id="interaction-checkbox" type="checkbox" checked />
+        <div class="field checkboxRow">
+          <label class="checkboxLabel">
+            <input id="teacherInteractive" type="checkbox" />
             Berättelsen ska vara interaktiv (frågor till eleverna)
           </label>
         </div>
       </div>
 
-      <div class="button-row">
-        <button id="save-mission-btn" class="primary-button">
-          Spara lektionsuppdrag
-        </button>
-        <span id="teacher-status" class="status-text"></span>
+      <hr class="sep" />
+
+      <h3>Lärarstyrning</h3>
+      <p class="muted">Det här gör att ingen kan skapa 19 kapitel hur som helst.</p>
+
+      <div class="grid2">
+        <div class="field">
+          <label for="teacherChapterCount">Max antal kapitel</label>
+          <select id="teacherChapterCount">
+            <option value="3">3</option>
+            <option value="4" selected>4</option>
+            <option value="5">5</option>
+            <option value="6">6</option>
+            <option value="8">8</option>
+          </select>
+        </div>
+
+        <div class="field">
+          <label for="teacherLengthPreset">Kapitel-längd</label>
+          <select id="teacherLengthPreset">
+            <option value="Kort" selected>Kort</option>
+            <option value="Normal">Normal</option>
+            <option value="Lång">Lång</option>
+          </select>
+          <div class="help">Kort = bäst för Åk 4. Normal funkar ofta för Åk 6.</div>
+        </div>
       </div>
 
-      <section class="saved-mission" id="saved-mission">
-        <!-- Fylls i från app.js när uppdrag finns -->
-      </section>
+      <div class="actions">
+        <button id="saveTeacherMission" class="primary" type="button">Spara lektionsuppdrag</button>
+        <button id="resetStoryTeacher" class="danger" type="button" title="Nollställer kapitelräknare och rensar kapitel i elevläget.">
+          Rensa saga
+        </button>
+      </div>
+
+      <div id="teacherSavedInfo" class="muted small"></div>
+
+      <div class="activeBox">
+        <h3>Aktivt lektionsuppdrag</h3>
+        <div id="activeMissionPreview" class="small"></div>
+      </div>
     </section>
 
-    <!-- ELEV-LÄGE -->
-    <section id="student-panel" class="panel hidden">
+    <!-- ========================= -->
+    <!-- ELEVLÄGE -->
+    <!-- ========================= -->
+    <section id="studentView" class="card hidden">
       <h2>Elevläge – starta äventyret</h2>
-      <p class="panel-intro">
-        Eleven skriver sin idé, BN-Skola väver ihop den med lärarens fakta.
-      </p>
+      <p class="muted">Eleven skriver sin idé, BN-Skola väver ihop den med lärarens fakta.</p>
 
-      <section id="lesson-summary" class="lesson-summary">
-        <!-- Visar ämne, stil, mål osv -->
-      </section>
+      <div class="missionCard" id="studentMissionCard"></div>
 
-      <div class="form-group">
-        <label for="student-prompt-input">Elevens idé / prompt</label>
-        <textarea
-          id="student-prompt-input"
-          rows="4"
-          placeholder="Ex: Vi vaknar i en skog där Zeus har tappat sin åskvigg, och vi måste hjälpa honom hitta den."
-        ></textarea>
+      <div class="field">
+        <label for="studentPrompt">Elevens idé / prompt</label>
+        <textarea id="studentPrompt" rows="3" placeholder="Ex: Vi vaknar i en skog där Zeus har tappat sin åskvinge, och vi måste hjälpa honom hitta den."></textarea>
       </div>
 
-      <div class="button-row">
-        <button id="generate-chapter-btn" class="primary-button">
-          Starta första kapitlet
-        </button>
-        <span id="student-status" class="status-text"></span>
+      <div class="actions">
+        <button id="startStory" class="primary" type="button">Starta första kapitlet</button>
+        <button id="nextChapter" class="primary" type="button">Nästa kapitel</button>
+        <button id="resetStoryStudent" class="danger" type="button">Rensa saga</button>
       </div>
 
-      <section id="chapter-meta" class="chapter-meta">
-        <!-- Kapitelinfo -->
-      </section>
+      <div id="statusLine" class="status"></div>
 
-      <section id="story-output" class="story-output">
-        <!-- Själva berättelsetexten -->
-      </section>
-
-      <section id="questions-output" class="questions-output">
-        <!-- Reflektionsfrågor -->
-      </section>
+      <div id="chaptersWrap" class="chapters"></div>
     </section>
+
+    <footer class="footer">
+      BN-Skola v1.1 – demo för Region Dalarna
+    </footer>
   </main>
 
-  <footer class="app-footer">
-    <small>BN-Skola v1 – demo för Region Dalarna</small>
-  </footer>
-
-  <script src="app.js" defer></script>
+  <script src="/app.js"></script>
 </body>
 </html>
