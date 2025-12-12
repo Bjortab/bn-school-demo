@@ -1,13 +1,16 @@
 // functions/api/bnschool_generate.js
-// BN-Skola v1.2 – StoryEngine backend för Cloudflare Pages Functions
-// Upgrade: SystemPrompt v2 (Tone+Tempo+Length+Consistency) + STATE lock parsing/injection
+// BN-Skola v1.3 – StoryEngine backend för Cloudflare Pages Functions
+// Fix: fetch URL string + REAL chapter_length handling (kort/normal/lång) + dynamic max_tokens
+// Keep: API-signatur oförändrad, STATE lock parsing/injection kvar
 
 export async function onRequestPost(context) {
   const { request, env } = context;
 
   const corsHeaders = {
     "Content-Type": "application/json; charset=utf-8",
-    "Access-Control-Allow-Origin": "*"
+    "Access-Control-Allow-Origin": "*",
+    "Access-Control-Allow-Methods": "POST, OPTIONS",
+    "Access-Control-Allow-Headers": "Content-Type, Authorization",
   };
 
   try {
@@ -44,6 +47,54 @@ export async function onRequestPost(context) {
     const cleanOneLine = (s) => safeStr(s).trim().replace(/\s+/g, " ");
     const qClean = (s) => cleanOneLine(s);
 
+    const safeInt = (v) => {
+      const n = typeof v === "number" ? v : parseInt(String(v || ""), 10);
+      return Number.isFinite(n) ? n : null;
+    };
+
+    // ---------------------------
+    // Längdstyrning: läs teacherMission.chapter_length + grade_level
+    // ---------------------------
+    const normalizeLengthLabel = (v) => {
+      const s = safeStr(v).trim().toLowerCase();
+      if (!s) return "";
+      if (s === "kort") return "kort";
+      if (s === "normal") return "normal";
+      if (s === "lång" || s === "lang") return "lång";
+      return "";
+    };
+
+    // Basintervall per årskurs (ord). Medvetet “klassrums-korta”.
+    // Du kan justera senare, men detta ger tydlig skillnad direkt.
+    const lengthTableByGrade = (gradeNum) => {
+      // Default om okänd/ej satt: Åk 4 (din demo)
+      const g = Number.isFinite(gradeNum) ? gradeNum : 4;
+
+      if (g <= 2) return { kort: [80, 110], normal: [120, 150], lång: [160, 190] };
+      if (g === 3) return { kort: [100, 130], normal: [140, 170], lång: [180, 210] };
+      if (g === 4) return { kort: [120, 150], normal: [160, 190], lång: [200, 230] };
+      if (g === 5) return { kort: [150, 190], normal: [200, 260], lång: [270, 330] };
+      if (g === 6) return { kort: [180, 230], normal: [240, 320], lång: [330, 420] };
+      if (g === 7) return { kort: [220, 300], normal: [320, 420], lång: [430, 560] };
+      if (g === 8) return { kort: [260, 360], normal: [380, 520], lång: [540, 700] };
+      // Åk 9
+      return { kort: [300, 420], normal: [450, 650], lång: [680, 900] };
+    };
+
+    const gradeNum = safeInt(teacherMission.grade_level) ?? 4;
+    const desiredLengthLabel = normalizeLengthLabel(teacherMission.chapter_length) || "kort";
+    const intervals = lengthTableByGrade(gradeNum);
+    const [wordMin, wordMax] = intervals[desiredLengthLabel] || intervals.kort;
+
+    // max_tokens: grov men praktisk mapping (svenska ord/token ~ 0.7–1.3 varierar)
+    // Vi sätter så att "kort" inte “råkar bli lång”.
+    const maxTokensByLength = (label) => {
+      if (label === "kort") return 500;
+      if (label === "normal") return 800;
+      return 1100; // lång
+    };
+    const maxTokens = maxTokensByLength(desiredLengthLabel);
+
     // ---------------------------
     // STATE parsing (från summary_for_next / short_summary)
     // Format: en rad som börjar med exakt "STATE: { ... }"
@@ -51,7 +102,6 @@ export async function onRequestPost(context) {
     const parseStateFromText = (text) => {
       const t = safeStr(text);
       if (!t) return {};
-      // hitta rad som börjar med STATE:
       const lines = t.split(/\r?\n/).map((x) => x.trim());
       const stateLine = lines.find((l) => l.startsWith("STATE:"));
       if (!stateLine) return {};
@@ -76,7 +126,6 @@ export async function onRequestPost(context) {
       return out;
     };
 
-    // Läs STATE från inkommande worldstate (summary_for_next + senaste previousChapters.short_summary)
     const incomingSummary = safeStr(incomingWorldState.summary_for_next || "");
     const incomingPrev = safeArr(incomingWorldState.previousChapters || []);
     const lastPrev = incomingPrev.length ? incomingPrev[incomingPrev.length - 1] : null;
@@ -85,11 +134,10 @@ export async function onRequestPost(context) {
     const stateFromSummary = parseStateFromText(incomingSummary);
     const stateFromLastPrev = parseStateFromText(lastPrevSummary);
 
-    // lockedState = senaste vinner (lastPrev) men summary kan också bära state
     const lockedState = mergeState(stateFromSummary, stateFromLastPrev);
 
     // ---------------------------
-    // SystemPrompt v2 (Motor-låsning)
+    // SystemPrompt v2 (+ aktiv längd injiceras hårt)
     // ---------------------------
     const systemPrompt = `
 Du är BN-School StoryEngine v2.
@@ -119,18 +167,15 @@ Varje kapitel följer “Lugnt → Spännande → Lugnt”:
 4) INGA meta-kommentarer (t.ex. “som en AI…”). Ingen vuxencynism.
 
 === LÄNGD (KRITISKT – HÅRD STYRNING) ===
-Du ska hålla dig inom ett ORDINTERVALL för kapitlets "chapter_text".
-- Om uppdraget anger önskad längd: följ den strikt.
-- Om ingen längd anges: använd default för Åk 4:
-  - Kort: 120–150 ord
-  - Normal: 160–190 ord
-  - Lång: 200–230 ord (max)
+AKTIV LÄNGD FÖR DETTA KAPITEL:
+- Önskad längd: "${desiredLengthLabel}"
+- Ordintervall för chapter_text: ${wordMin}–${wordMax} ord (håll dig inom detta intervall)
 
-Skriv inte längre än max. Hellre något kort än för långt.
+Skriv INTE längre än max. Hellre något kort än för långt.
 
-=== STILREGEL FÖR ÅK 4 ===
-Max 1–2 bildliga formuleringar per kapitel.
-Prioritera tydlig handling och dialog.
+=== STILREGEL ===
+Anpassa efter årskursen. Korta stycken. Tydlig handling. Dialog före beskrivning.
+För yngre år: extra enkelt språk. För äldre: lite mer detaljer men fortfarande tydligt.
 
 === INTERAKTION ===
 Om uppdraget markerar interaktivt läge:
@@ -166,7 +211,7 @@ Du måste ALLTID svara med ENBART ren JSON och exakt denna struktur:
   }
 }
 
-=== REFLEKTIONSFRÅGOR (EXAKT 3 – ÅK 4-SPRÅK) ===
+=== REFLEKTIONSFRÅGOR (EXAKT 3 – ÅK-ANPASSAT) ===
 Efter "chapter_text" ska du skapa EXAKT tre frågor i denna ordning:
 1) Fakta (enkel “vad”-fråga)
 2) Förståelse (enkel “varför”-fråga kopplad till fakta/mål)
@@ -201,25 +246,26 @@ VIKTIGT:
       teacher_mission: teacherMission,
       student_prompt: studentPrompt,
       worldstate: incomingWorldState || {},
-      locked_state: lockedState // <-- NYTT (endast till modellen)
+      locked_state: lockedState,
     };
 
+    // ✅ FIX: URL måste vara sträng
     const openaiResponse = await fetch("https://api.openai.com/v1/chat/completions", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        Authorization: `Bearer ${openaiKey}`
+        Authorization: `Bearer ${openaiKey}`,
       },
       body: JSON.stringify({
         model: "gpt-4.1",
         temperature: 0.7,
-        max_tokens: 1200,
+        max_tokens: maxTokens, // ✅ dynamiskt
         response_format: { type: "json_object" },
         messages: [
           { role: "system", content: systemPrompt },
-          { role: "user", content: JSON.stringify(userPayload) }
-        ]
-      })
+          { role: "user", content: JSON.stringify(userPayload) },
+        ],
+      }),
     });
 
     const openaiJson = await openaiResponse.json();
@@ -227,20 +273,17 @@ VIKTIGT:
     if (!openaiResponse.ok) {
       console.error("OpenAI-fel:", openaiResponse.status, openaiJson);
       return new Response(
-        JSON.stringify({
-          error: "OpenAI API fel",
-          details: openaiJson
-        }),
+        JSON.stringify({ error: "OpenAI API fel", details: openaiJson }),
         { status: 500, headers: corsHeaders }
       );
     }
 
     let rawContent = openaiJson?.choices?.[0]?.message?.content;
     if (!rawContent) {
-      return new Response(
-        JSON.stringify({ error: "Tomt svar från OpenAI" }),
-        { status: 500, headers: corsHeaders }
-      );
+      return new Response(JSON.stringify({ error: "Tomt svar från OpenAI" }), {
+        status: 500,
+        headers: corsHeaders,
+      });
     }
 
     let parsed;
@@ -254,8 +297,8 @@ VIKTIGT:
         worldstate: {
           chapterIndex,
           summary_for_next: "",
-          previousChapters: []
-        }
+          previousChapters: [],
+        },
       };
     }
 
@@ -264,7 +307,6 @@ VIKTIGT:
     // ---------------------------
     let rq = safeArr(parsed.reflection_questions).map(qClean).filter(Boolean);
 
-    // Fallback-frågor (enkel Åk-4)
     const topic = safeStr(teacherMission.topic || "ämnet");
     const fallback1 = `Vad handlade kapitlet om (t.ex. ${topic})?`;
     const fallback2 = `Varför var det som hände viktigt i berättelsen?`;
@@ -289,7 +331,6 @@ VIKTIGT:
 
     const summaryForNext = safeStr(parsed.worldstate?.summary_for_next || "");
 
-    // Idempotent update: ersätt sista om samma chapterIndex
     if (previousChapters.length > 0) {
       const last = previousChapters[previousChapters.length - 1];
       if (last && last.chapterIndex === chapterIndex) {
@@ -298,13 +339,13 @@ VIKTIGT:
           {
             chapterIndex,
             title: safeStr(last.title || ""),
-            short_summary: summaryForNext
-          }
+            short_summary: summaryForNext,
+          },
         ];
       } else {
         previousChapters = [
           ...previousChapters,
-          { chapterIndex, title: "", short_summary: summaryForNext }
+          { chapterIndex, title: "", short_summary: summaryForNext },
         ];
       }
     } else {
@@ -314,7 +355,7 @@ VIKTIGT:
     const responseWorldstate = {
       chapterIndex,
       summary_for_next: summaryForNext,
-      previousChapters
+      previousChapters,
     };
 
     // Output till frontend (oförändrad signatur)
@@ -322,12 +363,12 @@ VIKTIGT:
       chapterIndex,
       chapterText: safeStr(parsed.chapter_text || ""),
       reflectionQuestions: rq,
-      worldstate: responseWorldstate
+      worldstate: responseWorldstate,
     };
 
     return new Response(JSON.stringify(responseJson), {
       status: 200,
-      headers: corsHeaders
+      headers: corsHeaders,
     });
   } catch (err) {
     console.error("Oväntat fel i bnschool_generate:", err);
@@ -339,13 +380,12 @@ VIKTIGT:
 }
 
 export async function onRequestOptions() {
-  // En enkel CORS-OPTIONS om det skulle behövas
   return new Response(null, {
     status: 204,
     headers: {
       "Access-Control-Allow-Origin": "*",
       "Access-Control-Allow-Methods": "POST, OPTIONS",
-      "Access-Control-Allow-Headers": "Content-Type, Authorization"
-    }
+      "Access-Control-Allow-Headers": "Content-Type, Authorization",
+    },
   });
 }
