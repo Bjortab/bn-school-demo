@@ -18,6 +18,7 @@
   </nav>
 
   <main class="app-main">
+
     <!-- LÄRARLÄGE -->
     <section id="teacher-panel" class="panel">
       <h2>Lektionsuppdrag</h2>
@@ -31,7 +32,7 @@
           <input
             id="topic-input"
             type="text"
-            placeholder="Ex: Grekisk mytologi, Vattenkretsloppet, Medeltiden"
+            placeholder="Ex: Andra världskriget, Vattenkretsloppet, Grekisk mytologi"
           />
         </div>
 
@@ -41,9 +42,9 @@
             id="facts-input"
             rows="5"
             placeholder="Ex:
-Zeus är himlens gud.
-Athena är vishetens gudinna.
-Poseidon styr havet."
+Tyskland invaderade Polen 1939.
+Sverige var neutralt.
+Kriget tog slut 1945."
           ></textarea>
         </div>
 
@@ -53,8 +54,8 @@ Poseidon styr havet."
             id="goals-input"
             rows="4"
             placeholder="Ex:
-Förstå vad mytologi är.
-Kunna nämna tre grekiska gudar."
+Kunna förklara varför kriget startade.
+Kunna nämna två viktiga händelser."
           ></textarea>
         </div>
 
@@ -91,32 +92,39 @@ Kunna nämna tre grekiska gudar."
         </div>
       </div>
 
-      <!-- NYTT: lärarstyrning -->
-      <div class="teacher-controls">
-        <div class="form-group">
-          <label for="max-chapters-select">Max antal kapitel</label>
-          <select id="max-chapters-select">
-            <option value="3">3</option>
-            <option value="4" selected>4</option>
-            <option value="5">5</option>
-            <option value="6">6</option>
-            <option value="8">8</option>
-          </select>
-        </div>
+      <!-- LÄRARSTYRNING -->
+      <section class="teacher-controls">
+        <h3>Lärarstyrning</h3>
+        <p class="panel-intro">Sätter ramar så det blir lagom för klassen.</p>
 
-        <div class="form-group">
-          <label for="length-select">Kapitel-längd</label>
-          <select id="length-select">
-            <option value="kort" selected>Kort</option>
-            <option value="normal">Normal</option>
-            <option value="lång">Lång</option>
-          </select>
+        <div class="form-grid teacher-controls-grid">
+          <div class="form-group">
+            <label for="maxchapters-select">Max antal kapitel</label>
+            <select id="maxchapters-select">
+              <option value="2">2</option>
+              <option value="3">3</option>
+              <option value="4" selected>4</option>
+              <option value="5">5</option>
+              <option value="6">6</option>
+              <option value="8">8</option>
+              <option value="10">10</option>
+            </select>
+          </div>
+
+          <div class="form-group">
+            <label for="chapterlength-select">Kapitel-längd</label>
+            <select id="chapterlength-select">
+              <option value="kort" selected>Kort</option>
+              <option value="normal">Normal</option>
+              <option value="lång">Lång</option>
+            </select>
+            <small class="hint">Kort = bäst för Åk 4 om du vill hålla fokus.</small>
+          </div>
         </div>
-      </div>
+      </section>
 
       <div class="button-row">
         <button id="save-mission-btn" class="primary-button">Spara lektionsuppdrag</button>
-        <button id="reset-story-btn-teacher" class="secondary-button">Rensa saga</button>
         <span id="teacher-status" class="status-text"></span>
       </div>
 
@@ -127,7 +135,7 @@ Kunna nämna tre grekiska gudar."
     <section id="student-panel" class="panel hidden">
       <h2>Elevläge – starta äventyret</h2>
       <p class="panel-intro">
-        Eleven skriver sin idé, BN-Skola väver ihop den med lärarens fakta.
+        Eleven skriver sin idé. BN-Skola väver ihop den med lärarens fakta.
       </p>
 
       <section id="lesson-summary" class="lesson-summary"></section>
@@ -137,22 +145,14 @@ Kunna nämna tre grekiska gudar."
         <textarea
           id="student-prompt-input"
           rows="4"
-          placeholder="Ex: Vi vaknar i en skog där Zeus har tappat sin åskvigg, och vi måste hjälpa honom hitta den."
+          placeholder="Ex: Jag är en 10-åring som bor i Sverige 1939 och märker att något förändras i radion..."
         ></textarea>
       </div>
 
       <div class="button-row">
         <button id="generate-chapter-btn" class="primary-button">Starta första kapitlet</button>
-        <button id="reset-story-btn-student" class="secondary-button">Rensa saga</button>
+        <button id="reset-story-btn" class="secondary-button">Rensa saga</button>
         <span id="student-status" class="status-text"></span>
-      </div>
-
-      <!-- NYTT: kapitelval -->
-      <div class="chapter-history">
-        <label for="chapter-select">Visa kapitel</label>
-        <select id="chapter-select">
-          <option value="latest">Senaste</option>
-        </select>
       </div>
 
       <section id="chapter-meta" class="chapter-meta"></section>
@@ -162,7 +162,7 @@ Kunna nämna tre grekiska gudar."
   </main>
 
   <footer class="app-footer">
-    <small>BN-Skola v1 – demo för Region Dalarna</small>
+    <small>BN-Skola v1 – demo</small>
   </footer>
 
   <script src="app.js" defer></script>
