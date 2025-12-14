@@ -14,10 +14,7 @@ body {
   color: white;
 }
 
-.app-header h1 {
-  margin: 0;
-  font-size: 1.4rem;
-}
+.app-header h1 { margin: 0; font-size: 1.4rem; }
 
 .app-header .tagline {
   margin: 0.3rem 0 0;
@@ -65,10 +62,7 @@ body {
 
 .panel.hidden { display: none; }
 
-.panel h2 {
-  margin-top: 0;
-  font-size: 1.2rem;
-}
+.panel h2 { margin-top: 0; font-size: 1.2rem; }
 
 .panel-intro {
   margin-top: 0.25rem;
@@ -123,17 +117,6 @@ input[type="text"]:focus, select:focus, textarea:focus {
   font-size: 0.85rem;
 }
 
-.teacher-controls {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 1rem;
-  margin-top: 1rem;
-}
-
-@media (max-width: 768px) {
-  .teacher-controls { grid-template-columns: 1fr; }
-}
-
 .button-row {
   display: flex;
   align-items: center;
@@ -156,19 +139,17 @@ input[type="text"]:focus, select:focus, textarea:focus {
 
 .secondary-button {
   background: #ffffff;
-  color: #1d4ed8;
+  color: #111827;
   border-radius: 999px;
-  border: 1px solid #1d4ed8;
+  border: 1px solid #d1d5db;
   padding: 0.55rem 1.2rem;
   font-size: 0.9rem;
   cursor: pointer;
 }
 
-.status-text {
-  font-size: 0.85rem;
-  color: #4b5563;
-}
+.secondary-button:hover { border-color: #9ca3af; }
 
+.status-text { font-size: 0.85rem; color: #4b5563; }
 .status-text.error { color: #b91c1c; }
 
 .saved-mission {
@@ -178,15 +159,9 @@ input[type="text"]:focus, select:focus, textarea:focus {
   font-size: 0.9rem;
 }
 
-.saved-mission h3 {
-  margin: 0 0 0.3rem;
-  font-size: 1rem;
-}
+.saved-mission h3 { margin: 0 0 0.3rem; font-size: 1rem; }
 
-.saved-mission ul {
-  margin: 0.3rem 0 0;
-  padding-left: 1.1rem;
-}
+.saved-mission ul { margin: 0.3rem 0 0; padding-left: 1.1rem; }
 
 .lesson-summary {
   background: #eff6ff;
@@ -199,19 +174,7 @@ input[type="text"]:focus, select:focus, textarea:focus {
 
 .lesson-summary p { margin: 0.2rem 0; }
 
-.chapter-history {
-  margin-top: 0.75rem;
-  display: flex;
-  gap: 0.6rem;
-  align-items: center;
-  flex-wrap: wrap;
-}
-
-.chapter-meta {
-  margin-top: 1rem;
-  font-size: 0.85rem;
-  color: #6b7280;
-}
+.chapter-meta { margin-top: 1rem; font-size: 0.85rem; color: #6b7280; }
 
 .story-output {
   margin-top: 0.75rem;
@@ -221,7 +184,7 @@ input[type="text"]:focus, select:focus, textarea:focus {
   border: 1px solid #e5e7eb;
   white-space: pre-wrap;
   font-size: 0.95rem;
-  line-height: 1.5;
+  line-height: 1.55;
 }
 
 .questions-output {
@@ -233,14 +196,22 @@ input[type="text"]:focus, select:focus, textarea:focus {
   font-size: 0.9rem;
 }
 
-.questions-output h3 {
-  margin: 0 0 0.3rem;
-  font-size: 0.95rem;
+.questions-output h3 { margin: 0 0 0.3rem; font-size: 0.95rem; }
+.questions-output ol { margin: 0.4rem 0 0; padding-left: 1.1rem; }
+
+.teacher-controls {
+  margin-top: 1.25rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid #e5e7eb;
 }
 
-.questions-output ol {
-  margin: 0.4rem 0 0;
-  padding-left: 1.1rem;
+.teacher-controls h3 { margin: 0 0 0.25rem; font-size: 1rem; }
+
+.hint {
+  display: block;
+  margin-top: 0.35rem;
+  color: #6b7280;
+  font-size: 0.8rem;
 }
 
 .app-footer {
