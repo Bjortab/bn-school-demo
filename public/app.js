@@ -1,281 +1,170 @@
-// functions/api/bnschool_generate.js
-// BN-Skola Demo – StoryEngine (BN-Kids-flyt + prompt-omstart-skydd via frontend)
-// - Mindre moral/val i chapter_text
-// - Längd styrs: teacher_mission.chapter_length + grade_level
-// - Max kapitel stoppas server-side
-// - STATE-lås i summary_for_next (för konsekvens över kapitel)
+<!DOCTYPE html>
+<html lang="sv">
+<head>
+  <meta charset="UTF-8" />
+  <title>BN-Skola v1 – Demo</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <header class="app-header">
+    <h1>BN-Skola v1 – Lärande genom äventyr</h1>
+    <p class="tagline">Läraren styr faktan. Eleven styr äventyret.</p>
+  </header>
 
-export async function onRequestPost(context) {
-  const { request, env } = context;
+  <nav class="mode-switcher">
+    <button id="mode-teacher" class="mode-button active">Lärarläge</button>
+    <button id="mode-student" class="mode-button">Elevläge</button>
+  </nav>
 
-  const corsHeaders = {
-    "Content-Type": "application/json; charset=utf-8",
-    "Access-Control-Allow-Origin": "*"
-  };
+  <main class="app-main">
 
-  try {
-    const body = await request.json();
-    const teacherMission = body.teacher_mission;
-    const studentPrompt = body.student_prompt || "";
-    const incomingWorldState = body.worldstate || {};
+    <!-- LÄRARLÄGE -->
+    <section id="teacher-panel" class="panel">
+      <h2>Lektionsuppdrag</h2>
+      <p class="panel-intro">
+        Fyll i ämne, fakta och lärandemål. Det här blir ramen för elevens äventyr.
+      </p>
 
-    if (!teacherMission || !teacherMission.topic) {
-      return new Response(JSON.stringify({ error: "teacher_mission.topic saknas" }), {
-        status: 400,
-        headers: corsHeaders
-      });
-    }
+      <div class="form-grid">
+        <div class="form-group">
+          <label for="topic-input">Ämne / område</label>
+          <input
+            id="topic-input"
+            type="text"
+            placeholder="Ex: Andra världskriget, Vattenkretsloppet, Grekisk mytologi"
+          />
+        </div>
 
-    const openaiKey = env.OPENAI_API_KEY;
-    if (!openaiKey) {
-      return new Response(JSON.stringify({ error: "OPENAI_API_KEY saknas i miljövariablerna" }), {
-        status: 500,
-        headers: corsHeaders
-      });
-    }
+        <div class="form-group">
+          <label for="facts-input">Fakta (en rad per punkt)</label>
+          <textarea
+            id="facts-input"
+            rows="5"
+            placeholder="Ex:
+Tyskland invaderade Polen 1939.
+Sverige var neutralt.
+Kriget tog slut 1945."
+          ></textarea>
+        </div>
 
-    const safeStr = (v) => (typeof v === "string" ? v : "");
-    const safeArr = (v) => (Array.isArray(v) ? v : []);
-    const cleanOneLine = (s) => safeStr(s).trim().replace(/\s+/g, " ");
-    const qClean = (s) => cleanOneLine(s);
+        <div class="form-group">
+          <label for="goals-input">Lärandemål (en rad per mål)</label>
+          <textarea
+            id="goals-input"
+            rows="4"
+            placeholder="Ex:
+Kunna förklara varför kriget startade.
+Kunna nämna två viktiga händelser."
+          ></textarea>
+        </div>
 
-    const safeNum = (v, fallback) => {
-      const n = Number(v);
-      return Number.isFinite(n) ? n : fallback;
-    };
+        <div class="form-group">
+          <label for="grade-select">Årskurs</label>
+          <select id="grade-select">
+            <option value="">Välj årskurs...</option>
+            <option value="2">Åk 2</option>
+            <option value="3">Åk 3</option>
+            <option value="4">Åk 4</option>
+            <option value="5">Åk 5</option>
+            <option value="6">Åk 6</option>
+            <option value="7">Åk 7</option>
+            <option value="8">Åk 8</option>
+            <option value="9">Åk 9</option>
+          </select>
+        </div>
 
-    // --- max kapitel (server-säkert) ---
-    const maxCh = safeNum(teacherMission.max_chapters ?? 4, 4);
-    const currentIdx = safeNum(incomingWorldState.chapterIndex ?? 0, 0);
-    if (maxCh > 0 && currentIdx >= maxCh) {
-      return new Response(JSON.stringify({ error: "Max antal kapitel är nått." }), {
-        status: 400,
-        headers: corsHeaders
-      });
-    }
+        <div class="form-group">
+          <label for="style-select">Berättelsestil</label>
+          <select id="style-select">
+            <option value="äventyrlig">Äventyrlig</option>
+            <option value="mystisk">Mystisk</option>
+            <option value="rolig">Rolig</option>
+            <option value="realistisk">Mer realistisk</option>
+          </select>
+        </div>
 
-    const chapterIndex =
-      typeof incomingWorldState.chapterIndex === "number"
-        ? incomingWorldState.chapterIndex + 1
-        : 1;
+        <div class="form-group form-group-inline">
+          <label class="checkbox-label">
+            <input id="interaction-checkbox" type="checkbox" checked />
+            Berättelsen ska vara interaktiv (frågor till eleverna)
+          </label>
+        </div>
+      </div>
 
-    // --- STATE parsing ---
-    const parseStateFromText = (text) => {
-      const t = safeStr(text);
-      if (!t) return {};
-      const lines = t.split(/\r?\n/).map((x) => x.trim());
-      const stateLine = lines.find((l) => l.startsWith("STATE:"));
-      if (!stateLine) return {};
-      const jsonPart = stateLine.replace(/^STATE:\s*/, "").trim();
-      if (!jsonPart) return {};
-      try {
-        const obj = JSON.parse(jsonPart);
-        return obj && typeof obj === "object" && !Array.isArray(obj) ? obj : {};
-      } catch {
-        return {};
-      }
-    };
+      <!-- LÄRARSTYRNING -->
+      <section class="teacher-controls">
+        <h3>Lärarstyrning</h3>
+        <p class="panel-intro">Sätter ramar så det blir lagom för klassen.</p>
 
-    const mergeState = (a, b) => {
-      const out = {};
-      if (a && typeof a === "object") for (const [k, v] of Object.entries(a)) out[k] = v;
-      if (b && typeof b === "object") for (const [k, v] of Object.entries(b)) out[k] = v;
-      return out;
-    };
+        <div class="form-grid teacher-controls-grid">
+          <div class="form-group">
+            <label for="maxchapters-select">Max antal kapitel</label>
+            <select id="maxchapters-select">
+              <option value="2">2</option>
+              <option value="3">3</option>
+              <option value="4" selected>4</option>
+              <option value="5">5</option>
+              <option value="6">6</option>
+              <option value="8">8</option>
+              <option value="10">10</option>
+            </select>
+          </div>
 
-    const incomingSummary = safeStr(incomingWorldState.summary_for_next || "");
-    const incomingPrev = safeArr(incomingWorldState.previousChapters || []);
-    const lastPrev = incomingPrev.length ? incomingPrev[incomingPrev.length - 1] : null;
-    const lastPrevSummary = lastPrev ? safeStr(lastPrev.short_summary || "") : "";
+          <div class="form-group">
+            <label for="chapterlength-select">Kapitel-längd</label>
+            <select id="chapterlength-select">
+              <option value="kort" selected>Kort</option>
+              <option value="normal">Normal</option>
+              <option value="lång">Lång</option>
+            </select>
+            <small class="hint">Kort = bäst för Åk 4 om du vill hålla fokus.</small>
+          </div>
+        </div>
+      </section>
 
-    const lockedState = mergeState(parseStateFromText(incomingSummary), parseStateFromText(lastPrevSummary));
+      <div class="button-row">
+        <button id="save-mission-btn" class="primary-button">Spara lektionsuppdrag</button>
+        <span id="teacher-status" class="status-text"></span>
+      </div>
 
-    // --- Längdintervall ---
-    const grade = safeNum(teacherMission.grade_level, 4);
-    const lengthMode = safeStr(teacherMission.chapter_length || "kort").toLowerCase();
+      <section class="saved-mission" id="saved-mission"></section>
+    </section>
 
-    const lengthTable = {
-      2: { kort: [70, 90], normal: [90, 110], lång: [110, 130] },
-      3: { kort: [90, 120], normal: [120, 150], lång: [150, 180] },
-      4: { kort: [120, 150], normal: [160, 190], lång: [200, 230] },
-      5: { kort: [150, 190], normal: [200, 240], lång: [250, 300] },
-      6: { kort: [170, 210], normal: [220, 270], lång: [280, 330] },
-      7: { kort: [190, 240], normal: [250, 310], lång: [320, 390] },
-      8: { kort: [210, 270], normal: [280, 350], lång: [360, 450] },
-      9: { kort: [220, 290], normal: [300, 380], lång: [390, 480] }
-    };
+    <!-- ELEV-LÄGE -->
+    <section id="student-panel" class="panel hidden">
+      <h2>Elevläge – starta äventyret</h2>
+      <p class="panel-intro">
+        Eleven skriver sin idé. BN-Skola väver ihop den med lärarens fakta.
+      </p>
 
-    const g = Math.min(9, Math.max(2, grade));
-    const row = lengthTable[g] || lengthTable[4];
-    const [minWords, maxWords] = row[lengthMode] || row.kort;
+      <section id="lesson-summary" class="lesson-summary"></section>
 
-    // --- Systemprompt: BN-Kids-flyt i skolformat ---
-    const systemPrompt = `
-Du är BN-School StoryEngine.
+      <div class="form-group">
+        <label for="student-prompt-input">Elevens idé / prompt</label>
+        <textarea
+          id="student-prompt-input"
+          rows="4"
+          placeholder="Ex: Jag är en 10-åring som bor i Sverige 1939 och märker att något förändras i radion..."
+        ></textarea>
+      </div>
 
-MÅL:
-Skapa en pedagogisk men levande berättelse som känns som BN-Kids: varm, flytande, dialogdriven, korta stycken.
+      <div class="button-row">
+        <button id="generate-chapter-btn" class="primary-button">Starta första kapitlet</button>
+        <button id="reset-story-btn" class="secondary-button">Rensa saga</button>
+        <span id="student-status" class="status-text"></span>
+      </div>
 
-HÅRDA REGLER:
-1) Lärarens fakta är LAG. Du får inte ändra eller motsäga dem.
-2) Elevens idé vävs in lekfullt utan att sabotera fakta.
-3) Inget olämpligt innehåll (sex, svordomar, glorifierat våld).
-4) Inga meta-kommentarer (“som en AI…”).
+      <section id="chapter-meta" class="chapter-meta"></section>
+      <section id="story-output" class="story-output"></section>
+      <section id="questions-output" class="questions-output"></section>
+    </section>
+  </main>
 
-BN-KIDS-FLYT (VIKTIGT):
-- Skriv “du”-form (andra person).
-- Dialog + handling före förklaringar.
-- INGEN moralpredikan i storytexten.
-- Inga långa val-listor. Om interaktivt: max 1 mjuk fråga i storyn.
+  <footer class="app-footer">
+    <small>BN-Skola v1 – demo</small>
+  </footer>
 
-LÄNGD:
-Sikta på ${minWords}–${maxWords} ord i "chapter_text". Överskrid inte max.
-
-KONSEKVENS / STATUS-LÅSNING:
-Du får "locked_state". Om något är lost/broken/inactive/weakened:
-- Använd det inte som om det fungerar.
-- Ändra status bara om berättelsen visar att det hittas/lagas/återfås.
-
-OUTPUT: ENDAST REN JSON exakt så här:
-{
-  "chapter_text": "...",
-  "reflection_questions": ["...","...","..."],
-  "worldstate": {
-    "chapterIndex": ${chapterIndex},
-    "summary_for_next": "2–4 meningar. Sista raden: STATE: {...}",
-    "previousChapters": []
-  }
-}
-
-REFLEKTIONSFRÅGOR: EXAKT 3
-1) Fakta (vad?)
-2) Förståelse (varför?)
-3) Personlig (vad hade du gjort?)
-
-SUMMARY_FOR_NEXT:
-Skriv 2–4 meningar.
-Sista raden måste börja exakt: STATE: { ... }
-Om inga statusar: STATE: {}
-`.trim();
-
-    const userPayload = {
-      chapterIndex,
-      teacher_mission: teacherMission,
-      student_prompt: studentPrompt,
-      worldstate: incomingWorldState || {},
-      locked_state: lockedState
-    };
-
-    const openaiResponse = await fetch("https://api.openai.com/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${openaiKey}`
-      },
-      body: JSON.stringify({
-        model: "gpt-4.1",
-        temperature: 0.7,
-        max_tokens: 1200,
-        response_format: { type: "json_object" },
-        messages: [
-          { role: "system", content: systemPrompt },
-          { role: "user", content: JSON.stringify(userPayload) }
-        ]
-      })
-    });
-
-    const openaiJson = await openaiResponse.json();
-
-    if (!openaiResponse.ok) {
-      console.error("OpenAI-fel:", openaiResponse.status, openaiJson);
-      return new Response(JSON.stringify({ error: "OpenAI API fel", details: openaiJson }), {
-        status: 500,
-        headers: corsHeaders
-      });
-    }
-
-    const rawContent = openaiJson?.choices?.[0]?.message?.content;
-    if (!rawContent) {
-      return new Response(JSON.stringify({ error: "Tomt svar från OpenAI" }), {
-        status: 500,
-        headers: corsHeaders
-      });
-    }
-
-    let parsed;
-    try {
-      parsed = JSON.parse(rawContent);
-    } catch (e) {
-      console.error("Kunde inte parsa JSON:", e);
-      parsed = {
-        chapter_text: rawContent,
-        reflection_questions: [],
-        worldstate: { chapterIndex, summary_for_next: "STATE: {}", previousChapters: [] }
-      };
-    }
-
-    // Enforce: exakt 3 frågor
-    let rq = safeArr(parsed.reflection_questions).map(qClean).filter(Boolean);
-    const topic = safeStr(teacherMission.topic || "ämnet");
-    const fallback1 = `Vad var den viktigaste faktan i kapitlet om ${topic}?`;
-    const fallback2 = `Varför var det som hände viktigt för att förstå ${topic}?`;
-    const fallback3 = `Vad hade du gjort nu – och varför?`;
-    if (rq.length >= 3) rq = rq.slice(0, 3);
-    while (rq.length < 3) rq.push([fallback1, fallback2, fallback3][rq.length]);
-
-    const summaryForNext = safeStr(parsed.worldstate?.summary_for_next || "STATE: {}");
-
-    // previousChapters: spara “kapitelpaket” (text + frågor) så frontend kan visa snyggt
-    let previousChapters = safeArr(incomingWorldState.previousChapters || []);
-
-    const chapterPack = {
-      chapterIndex,
-      chapter_text: safeStr(parsed.chapter_text || ""),
-      reflection_questions: rq,
-      short_summary: summaryForNext
-    };
-
-    if (previousChapters.length > 0) {
-      const last = previousChapters[previousChapters.length - 1];
-      if (last && last.chapterIndex === chapterIndex) {
-        previousChapters = [...previousChapters.slice(0, -1), chapterPack];
-      } else {
-        previousChapters = [...previousChapters, chapterPack];
-      }
-    } else {
-      previousChapters = [chapterPack];
-    }
-
-    const responseWorldstate = {
-      chapterIndex,
-      summary_for_next: summaryForNext,
-      previousChapters
-    };
-
-    const responseJson = {
-      chapterIndex,
-      chapterText: safeStr(parsed.chapter_text || ""),
-      reflectionQuestions: rq,
-      worldstate: responseWorldstate
-    };
-
-    return new Response(JSON.stringify(responseJson), { status: 200, headers: corsHeaders });
-  } catch (err) {
-    console.error("Oväntat fel i bnschool_generate:", err);
-    return new Response(JSON.stringify({ error: "Internt fel", details: String(err) }), {
-      status: 500,
-      headers: corsHeaders
-    });
-  }
-}
-
-export async function onRequestOptions() {
-  return new Response(null, {
-    status: 204,
-    headers: {
-      "Access-Control-Allow-Origin": "*",
-      "Access-Control-Allow-Methods": "POST, OPTIONS",
-      "Access-Control-Allow-Headers": "Content-Type, Authorization"
-    }
-  });
-}
+  <script src="app.js" defer></script>
+</body>
+</html>
