@@ -1,26 +1,22 @@
 // functions/api/bnschool_generate.js
-// BN-Skola v1.6 – StoryEngine backend för Cloudflare Pages Functions
-// Fix: tillbaka till "rundtur" (Poseidon/Hades visar runt), hård framåtdrift, mindre fluff, mer setpieces.
+// BN-Skola v1.3 – StoryEngine backend för Cloudflare Pages Functions
+// Fix: mindre “fakta-tjat”, mer framåtdrift, elevnamn, längdstyrning, BN-Kids prompt-beteende stöds av frontend
 
 export async function onRequestPost(context) {
   const { request, env } = context;
 
   const corsHeaders = {
     "Content-Type": "application/json; charset=utf-8",
-    "Access-Control-Allow-Origin": "*",
+    "Access-Control-Allow-Origin": "*"
   };
 
   try {
     const body = await request.json();
 
-    const teacherMission = body.teacher_mission || {};
-    const studentPromptRaw = typeof body.student_prompt === "string" ? body.student_prompt : "";
-    const studentPrompt = studentPromptRaw.trim();
+    const teacherMission = body.teacher_mission;
+    const studentPrompt = typeof body.student_prompt === "string" ? body.student_prompt : "";
     const studentName = typeof body.student_name === "string" ? body.student_name.trim() : "";
     const incomingWorldState = body.worldstate && typeof body.worldstate === "object" ? body.worldstate : {};
-
-    // Frontend checkbox: true = ny riktning (använd prompt igen)
-    const usePromptAsNewDirection = !!body.use_prompt_as_new_direction;
 
     if (!teacherMission || !teacherMission.topic) {
       return new Response(JSON.stringify({ error: "teacher_mission.topic saknas" }), { status: 400, headers: corsHeaders });
@@ -43,21 +39,22 @@ export async function onRequestPost(context) {
 
     // Length ranges (ord)
     const grade = parseInt(teacherMission.grade_level, 10) || 4;
-    const len = safeStr(teacherMission.chapter_length || "normal").toLowerCase(); // "kort" | "normal" | "lang"
+    const len = safeStr(teacherMission.chapter_length || "normal"); // "kort" | "normal" | "lang"
 
     const lengthTable = {
+      // lite tightare för yngre, mer för äldre. "lang" är rejält längre än innan (som du bad om).
       2: { kort: [70, 90], normal: [90, 120], lang: [130, 170] },
       3: { kort: [90, 120], normal: [120, 160], lang: [170, 220] },
-      4: { kort: [120, 160], normal: [160, 210], lang: [240, 380] }, // lång märkbart längre
-      5: { kort: [140, 190], normal: [190, 260], lang: [280, 410] },
-      6: { kort: [160, 210], normal: [210, 290], lang: [310, 450] },
-      7: { kort: [180, 240], normal: [240, 330], lang: [350, 500] },
-      8: { kort: [200, 270], normal: [270, 370], lang: [390, 570] },
-      9: { kort: [220, 310], normal: [310, 430], lang: [450, 640] },
+      4: { kort: [120, 160], normal: [160, 210], lang: [220, 320] },
+      5: { kort: [140, 190], normal: [190, 250], lang: [260, 360] },
+      6: { kort: [160, 210], normal: [210, 280], lang: [290, 400] },
+      7: { kort: [180, 240], normal: [240, 320], lang: [330, 450] },
+      8: { kort: [200, 260], normal: [260, 350], lang: [360, 520] },
+      9: { kort: [220, 300], normal: [300, 420], lang: [430, 600] }
     };
 
     const ranges = lengthTable[grade] || lengthTable[4];
-    const [minWords, maxWords] = (ranges[len] || ranges["normal"]);
+    const [minWords, maxWords] = ranges[len] || ranges["normal"];
 
     // ---------------------------
     // STATE parsing (låst status)
@@ -95,116 +92,96 @@ export async function onRequestPost(context) {
     const lockedState = mergeState(stateFromSummary, stateFromLastPrev);
 
     // ---------------------------
-    // Prompt-beteende:
-    // - Kapitel 1: använd prompt om den finns
-    // - Kapitel 2+: använd prompt bara om checkbox = true
-    // ---------------------------
-    const promptEffective = (chapterIndex === 1 || usePromptAsNewDirection) ? studentPrompt : "";
-
-    // För tour-mode: försök plocka senaste "current_location" om den finns
-    const currentLocation = safeStr(lockedState.current_location || "");
-    const visited = Array.isArray(lockedState.visited_locations) ? lockedState.visited_locations : [];
-    const guideName = safeStr(lockedState.guide || ""); // "Poseidon" / "Hades" kan ligga här om modellen sparar det
-
-    // ---------------------------
-    // SystemPrompt v2.3 (TOUR MODE – hård framåtdrift)
+    // SystemPrompt v3 (fakta smart + ingen tjat-loop + framåtdrift + elevnamn)
     // ---------------------------
     const systemPrompt = `
-Du är BN-School StoryEngine v2.3.
+Du är BN-School StoryEngine v3.
 
-=== ROLL ===
-Du är en MEDSPELARE i elevens äventyr – inte en föreläsare.
-All text skrivs i andra person (“du”).
+=== KÄNSLA ===
+Skriv med BN-Kids-känsla: varm, levande, lätt humor, mycket flyt. Kortare meningar. Dialog före föreläsning.
+Berättelsen ska KÄNNAS som ett äventyr, inte som en lärobok.
+
+=== MÅLGRUPP ===
+Anpassa språk, tempo och ordval till Åk ${grade}.
+
+=== VIKTIGT: FRAMÅTDRIFT ===
+Varje kapitel ska föra berättelsen vidare med en ny händelse.
+Du får INTE “starta om” eller repetera samma intro/premiss.
+Du får INTE fastna i att lista samma fakta om och om igen.
+
+=== LÄRARFAKTA ÄR LAG ===
+- Fakta i teacher_mission.facts är SANNINGEN du ska följa.
+- Du får väva in 1–3 fakta per kapitel (motorn väljer).
+- Du får absolut INTE rabbla alla fakta i varje kapitel.
+- Upprepa inte samma faktarad två kapitel i rad om det inte behövs.
+- Om du lägger till extra faktabit (t.ex. “Hades hund”): gör det bara om du är 100% säker på att det är korrekt och allmänt vedertaget.
+  Om du är minsta osäker: låt bli.
+
+=== ELEVENS PROMPT ===
+- student_prompt används för att starta boken (kapitel 1).
+- Om student_prompt är tomt i senare kapitel: fortsätt berättelsen naturligt framåt utan att “börja om”.
 
 === ELEVENS NAMN ===
-Om "student_name" finns: använd exakt det namnet naturligt MAX 1 gång per kapitel (gärna i början).
+- Om student_name finns: nämn namnet ibland (max 1 gång per kapitel), naturligt i dialog eller berättelse.
 
-=== LÄRARFAKTA ===
-Lärarfakta är LAG. Du får inte motsäga det. Du får däremot visa fakta genom händelser/miljö.
+=== TON ===
+Trygg, varm, äventyrlig. Ingen vuxencynism. Inga meta-kommentarer (“som AI…”).
 
-=== LÄNGD (HÅRD) ===
-"chapter_text" ska vara ungefär ${minWords}–${maxWords} ord. Aldrig över max.
+=== INNEHÅLL ===
+Inget sex, inga svordomar, inget grafiskt våld. (Spänning okej, men barnvänligt.)
 
-=== TOUR MODE (DET HÄR ÄR HELA GREJEN) ===
-Varje kapitel ska kännas som en GUIDAD RUNDTUR:
-- En guide (t.ex. Poseidon eller Hades) leder dig fysiskt genom en plats.
-- Guiden ska VISA saker, inte stå och prata om abstrakta grejer.
-- Du ska RÖRA DIG till en ny delplats varje kapitel.
-
-HÅRDA TOUR-REGLER:
-1) NY DELPLATS VARJE KAPITEL.
-   - Du får inte stanna kvar och “prata runt” i samma scen.
-   - Exempel delplatser: “Havsmosaiken”, “Korallbiblioteket”, “Tritons ekorum”, “Styx-stranden”, “Färjkarlsbryggan”, “Porten av ben”, etc.
-2) SETPIECE-KRAV: Varje kapitel måste innehålla:
-   A) 2–3 saker som du ser (konkreta objekt/landmärken)
-   B) 1 sak som händer (en liten incident/mini-hinder/mini-mysterie)
-   C) 1 tydlig rörelse framåt (ni går vidare till nästa delplats eller tar ett beslut)
-3) DIALOG: Max 5 repliker totalt per kapitel. Ingen “mystisk röst”-utfyllnad.
-
-=== ANTI-FLUFF (FÖRBJUDET) ===
-Följande är förbjudet om det inte är absolut nödvändigt:
-- “Inte allt är synligt…”, “du känner en mystisk närvaro…”, “en röst viskar…” (som utfyllnad)
-- “Vi tre gudar…” / “utan oss blir världen kaos” / “jag styr X, han styr Y” (tjöt)
-- Att rada upp flera gudar med presentationstal.
-
-Om fler gudar nämns:
-- Max 1 kort mening och vidare till handling/utforskning.
-
-=== MIKROFAKTA (BRA VERSIONEN) ===
-Du ska lägga in 1–2 korta fakta-inslag per kapitel, invävda i platsen.
-EXAKT stil:
-“Floden Styx rann förbi, mörk som bläck. Hades pekade: alla själar måste passera här – därför fick ingen fuska.”
+=== LÄNGD (HÅRT) ===
+chapter_text ska vara mellan ${minWords} och ${maxWords} ord.
+Hellre i nedre delen än för långt.
 
 === INTERAKTION ===
-Om interaktivt läge: ställ max 1 fråga i kapitlet (ett val som påverkar nästa delplats).
+Om requires_interaction är true:
+- max 1 lätt fråga i slutet av chapter_text (inte flera val, inte moralpredikan)
+- reflection_questions är alltid exakt 3 (se nedan)
 
-=== KONSEKVENS / STATUS ===
-Du får locked_state med t.ex. current_location, guide, visited_locations.
-- Respektera status.
-- Uppdatera så att storyn driver framåt (ny delplats).
+=== KONSEKVENS / STATUS-LÅSNING ===
+Du får locked_state.
+Om något är “lost/broken/inactive/weakened” så får du inte använda det som fungerande.
+Status ändras bara om texten visar att det hittats/lagats/återfåtts.
 
 === OUTPUTFORMAT (ENDAST JSON) ===
+Svara ENDAST med ren JSON exakt:
 {
   "chapter_text": "...",
   "reflection_questions": ["...","...","..."],
   "worldstate": {
     "chapterIndex": ${chapterIndex},
-    "summary_for_next": "2–4 meningar. Sist: STATE: {...}",
+    "summary_for_next": "2–4 korta meningar...\\nSTATE: {...}",
     "previousChapters": []
   }
 }
 
-=== REFLEKTIONSFRÅGOR (EXAKT 3, VARIERADE) ===
-1) Fakta (vad) – kopplad till delplatsen/händelsen
-2) Förståelse (varför)
-3) Personlig (vad hade du gjort?)
-FÖRBJUDET som standard: “Vilka tre gudar…”.
+=== REFLEKTIONSFRÅGOR (EXAKT 3, KORTA, INTE MORAL) ===
+1) Faktafråga (enkel “vad”)
+2) Förståelse (enkel “varför” kopplat till fakta/mål)
+3) Personlig (”vad hade du gjort?” – kort, inget rätt/fel)
+
+=== SUMMARY_FOR_NEXT ===
+2–4 korta meningar om vad som hände + sist en rad:
+STATE: {...}
+Om inga statusar: STATE: {}
 `.trim();
 
-    // User payload
+    // User payload till modellen
     const userPayload = {
       chapterIndex,
       teacher_mission: teacherMission,
       student_name: studentName,
-      student_prompt: promptEffective,
-      prompt_mode: (promptEffective ? "new_direction" : "continue_forward"),
-      previous_summary: incomingSummary,
+      student_prompt: studentPrompt,
       worldstate: incomingWorldState || {},
-      locked_state: {
-        ...lockedState,
-        current_location: currentLocation,
-        visited_locations: visited,
-        guide: guideName,
-      },
-      // Liten hint: driver mot tour-känslan du vill ha
-      author_intent: "TOUR_MODE: guidning + rundtur + nya delplatser varje kapitel. Mindre snack, mer visar runt.",
+      locked_state: lockedState
     };
 
     const openaiResponse = await fetch("https://api.openai.com/v1/chat/completions", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "Authorization": `Bearer ${openaiKey}`,
+        Authorization: `Bearer ${openaiKey}`
       },
       body: JSON.stringify({
         model: "gpt-4.1",
@@ -213,9 +190,9 @@ FÖRBJUDET som standard: “Vilka tre gudar…”.
         response_format: { type: "json_object" },
         messages: [
           { role: "system", content: systemPrompt },
-          { role: "user", content: JSON.stringify(userPayload) },
-        ],
-      }),
+          { role: "user", content: JSON.stringify(userPayload) }
+        ]
+      })
     });
 
     const openaiJson = await openaiResponse.json();
@@ -238,7 +215,7 @@ FÖRBJUDET som standard: “Vilka tre gudar…”.
       parsed = {
         chapter_text: rawContent,
         reflection_questions: [],
-        worldstate: { chapterIndex, summary_for_next: "", previousChapters: [] },
+        worldstate: { chapterIndex, summary_for_next: "", previousChapters: [] }
       };
     }
 
@@ -246,9 +223,9 @@ FÖRBJUDET som standard: “Vilka tre gudar…”.
     let rq = safeArr(parsed.reflection_questions).map(qClean).filter(Boolean);
 
     const topic = safeStr(teacherMission.topic || "ämnet");
-    const fallback1 = `Vilken ny sak såg du eller upptäckte du i kapitlet om ${topic}?`;
-    const fallback2 = `Varför tror du att den saken var viktig i berättelsen?`;
-    const fallback3 = `Vad hade du gjort om du stod där på riktigt?`;
+    const fallback1 = `Vad var det viktigaste ni fick veta om ${topic}?`;
+    const fallback2 = `Varför spelade det du lärde dig roll i kapitlet?`;
+    const fallback3 = `Vad hade du själv gjort i den situationen?`;
 
     if (rq.length >= 3) rq = rq.slice(0, 3);
     while (rq.length < 3) {
@@ -257,25 +234,18 @@ FÖRBJUDET som standard: “Vilka tre gudar…”.
       else rq.push(fallback3);
     }
 
-    const chapterText = safeStr(parsed.chapter_text || "");
     const summaryForNext = safeStr(parsed.worldstate?.summary_for_next || "");
 
-    // Kapitel-sparande
-    const updatedPrevious = safeArr(incomingWorldState.previousChapters || []).slice();
-    updatedPrevious.push({
-      chapterIndex,
-      short_summary: summaryForNext || `Kapitel ${chapterIndex} klart.\nSTATE: {}`,
-    });
-
+    // Output till frontend (stabil signatur)
     const responseJson = {
       chapterIndex,
-      chapterText,
+      chapterText: safeStr(parsed.chapter_text || ""),
       reflectionQuestions: rq,
       worldstate: {
         chapterIndex,
         summary_for_next: summaryForNext,
-        previousChapters: updatedPrevious,
-      },
+        previousChapters: safeArr(incomingWorldState.previousChapters || [])
+      }
     };
 
     return new Response(JSON.stringify(responseJson), { status: 200, headers: corsHeaders });
@@ -291,7 +261,7 @@ export async function onRequestOptions() {
     headers: {
       "Access-Control-Allow-Origin": "*",
       "Access-Control-Allow-Methods": "POST, OPTIONS",
-      "Access-Control-Allow-Headers": "Content-Type, Authorization",
-    },
+      "Access-Control-Allow-Headers": "Content-Type, Authorization"
+    }
   });
 }
