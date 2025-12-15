@@ -18,7 +18,6 @@
   </nav>
 
   <main class="app-main">
-    <!-- LÄRARLÄGE -->
     <section id="teacher-panel" class="panel">
       <h2>Lektionsuppdrag</h2>
       <p class="panel-intro">
@@ -28,48 +27,31 @@
       <div class="form-grid">
         <div class="form-group">
           <label for="topic-input">Ämne / område</label>
-          <input
-            id="topic-input"
-            type="text"
-            placeholder="Ex: Andra världskriget, Vattenkretsloppet, Grekisk mytologi"
-          />
+          <input id="topic-input" type="text" placeholder="Ex: Andra världskriget, Vattenkretsloppet, Grekisk mytologi" />
         </div>
 
         <div class="form-group">
           <label for="facts-input">Fakta (en rad per punkt)</label>
-          <textarea
-            id="facts-input"
-            rows="5"
-            placeholder="Ex:
+          <textarea id="facts-input" rows="5" placeholder="Ex:
 Tyskland invaderade Polen 1939.
 Kriget tog slut 1945.
-Sverige var neutralt."
-          ></textarea>
+Sverige var neutralt."></textarea>
         </div>
 
         <div class="form-group">
           <label for="goals-input">Lärandemål (en rad per mål)</label>
-          <textarea
-            id="goals-input"
-            rows="4"
-            placeholder="Ex:
+          <textarea id="goals-input" rows="4" placeholder="Ex:
 Kunna förklara varför kriget startade.
-Kunna nämna två viktiga händelser."
-          ></textarea>
+Kunna nämna två viktiga händelser."></textarea>
         </div>
 
         <div class="form-group">
           <label for="grade-select">Årskurs</label>
           <select id="grade-select">
             <option value="">Välj årskurs...</option>
-            <option value="2">Åk 2</option>
-            <option value="3">Åk 3</option>
-            <option value="4">Åk 4</option>
-            <option value="5">Åk 5</option>
-            <option value="6">Åk 6</option>
-            <option value="7">Åk 7</option>
-            <option value="8">Åk 8</option>
-            <option value="9">Åk 9</option>
+            <option value="2">Åk 2</option><option value="3">Åk 3</option><option value="4">Åk 4</option>
+            <option value="5">Åk 5</option><option value="6">Åk 6</option><option value="7">Åk 7</option>
+            <option value="8">Åk 8</option><option value="9">Åk 9</option>
           </select>
         </div>
 
@@ -93,11 +75,8 @@ Kunna nämna två viktiga händelser."
         <div class="form-group">
           <label for="max-chapters-select">Max antal kapitel</label>
           <select id="max-chapters-select">
-            <option value="2">2</option>
-            <option value="3">3</option>
-            <option value="4" selected>4</option>
-            <option value="5">5</option>
-            <option value="6">6</option>
+            <option value="2">2</option><option value="3">3</option><option value="4" selected>4</option>
+            <option value="5">5</option><option value="6">6</option>
           </select>
         </div>
 
@@ -108,7 +87,7 @@ Kunna nämna två viktiga händelser."
             <option value="normal" selected>Normal</option>
             <option value="lang">Lång</option>
           </select>
-          <small class="hint-text">Tips: “Lång” får vara rejält längre än tidigare.</small>
+          <small class="hint-text">Tips: “Lång” får vara rejält längre.</small>
         </div>
       </div>
 
@@ -120,7 +99,6 @@ Kunna nämna två viktiga händelser."
       <section class="saved-mission" id="saved-mission"></section>
     </section>
 
-    <!-- ELEV-LÄGE -->
     <section id="student-panel" class="panel hidden">
       <h2>Elevläge – starta äventyret</h2>
       <p class="panel-intro">Eleven skriver sin idé, BN-Skola väver ihop den med lärarens fakta.</p>
@@ -135,13 +113,18 @@ Kunna nämna två viktiga händelser."
 
         <div class="form-group">
           <label for="student-prompt-input">Elevens idé / prompt</label>
-          <textarea
-            id="student-prompt-input"
-            rows="3"
-            placeholder="Ex: Vi vaknar i en skog där Zeus har tappat sin åskvigg, och vi måste hjälpa honom hitta den."
-          ></textarea>
+          <textarea id="student-prompt-input" rows="3"
+            placeholder="Ex: Vi vaknar i en skog där Zeus har tappat sin åskvigg, och vi måste hjälpa honom hitta den."></textarea>
+
+          <label class="checkbox-label" style="margin-top:0.4rem;">
+            <input id="use-prompt-as-direction" type="checkbox" />
+            Använd som ny riktning nästa kapitel (annars ignoreras prompten och vi fortsätter framåt)
+          </label>
+
           <small class="hint-text">
-            Tips: BN-Kids-stil: prompten används för att “starta”. Låt den gärna ligga kvar – nästa kapitel fortsätter ändå framåt.
+            Starta bok: skriv prompt → “Starta första kapitlet”.
+            Fortsätta: klicka “Nästa kapitel”.
+            Byta riktning: skriv ny prompt + bocka i rutan ovan.
           </small>
         </div>
       </div>
@@ -170,7 +153,7 @@ Kunna nämna två viktiga händelser."
   </div>
 
   <footer class="app-footer">
-    <small>BN-Skola v1 – demo för Region Dalarna</small>
+    <small>BN-Skola v1 – demo</small>
   </footer>
 
   <script src="app.js" defer></script>
