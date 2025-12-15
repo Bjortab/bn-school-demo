@@ -1,6 +1,6 @@
 // functions/api/bnschool_generate.js
-// BN-Skola v1.5 – StoryEngine backend för Cloudflare Pages Functions
-// Fix: stoppar “tre gudar-rollcall”, minskar dialog, ökar utforskning + stabil prompt-beteende + kapitel-sparande.
+// BN-Skola v1.6 – StoryEngine backend för Cloudflare Pages Functions
+// Fix: tillbaka till "rundtur" (Poseidon/Hades visar runt), hård framåtdrift, mindre fluff, mer setpieces.
 
 export async function onRequestPost(context) {
   const { request, env } = context;
@@ -48,12 +48,12 @@ export async function onRequestPost(context) {
     const lengthTable = {
       2: { kort: [70, 90], normal: [90, 120], lang: [130, 170] },
       3: { kort: [90, 120], normal: [120, 160], lang: [170, 220] },
-      4: { kort: [120, 160], normal: [160, 210], lang: [230, 360] }, // lång lite längre
-      5: { kort: [140, 190], normal: [190, 260], lang: [270, 390] },
-      6: { kort: [160, 210], normal: [210, 290], lang: [300, 430] },
-      7: { kort: [180, 240], normal: [240, 330], lang: [340, 480] },
-      8: { kort: [200, 270], normal: [270, 370], lang: [380, 550] },
-      9: { kort: [220, 310], normal: [310, 430], lang: [440, 620] },
+      4: { kort: [120, 160], normal: [160, 210], lang: [240, 380] }, // lång märkbart längre
+      5: { kort: [140, 190], normal: [190, 260], lang: [280, 410] },
+      6: { kort: [160, 210], normal: [210, 290], lang: [310, 450] },
+      7: { kort: [180, 240], normal: [240, 330], lang: [350, 500] },
+      8: { kort: [200, 270], normal: [270, 370], lang: [390, 570] },
+      9: { kort: [220, 310], normal: [310, 430], lang: [450, 640] },
     };
 
     const ranges = lengthTable[grade] || lengthTable[4];
@@ -95,76 +95,73 @@ export async function onRequestPost(context) {
     const lockedState = mergeState(stateFromSummary, stateFromLastPrev);
 
     // ---------------------------
-    // BN-Kids prompt-beteende:
+    // Prompt-beteende:
     // - Kapitel 1: använd prompt om den finns
     // - Kapitel 2+: använd prompt bara om checkbox = true
     // ---------------------------
     const promptEffective = (chapterIndex === 1 || usePromptAsNewDirection) ? studentPrompt : "";
 
+    // För tour-mode: försök plocka senaste "current_location" om den finns
+    const currentLocation = safeStr(lockedState.current_location || "");
+    const visited = Array.isArray(lockedState.visited_locations) ? lockedState.visited_locations : [];
+    const guideName = safeStr(lockedState.guide || ""); // "Poseidon" / "Hades" kan ligga här om modellen sparar det
+
     // ---------------------------
-    // SystemPrompt v2.2 (Anti-rollcall + mer exploration)
+    // SystemPrompt v2.3 (TOUR MODE – hård framåtdrift)
     // ---------------------------
     const systemPrompt = `
-Du är BN-School StoryEngine v2.2.
+Du är BN-School StoryEngine v2.3.
 
 === ROLL ===
 Du är en MEDSPELARE i elevens äventyr – inte en föreläsare.
-Du skriver ALLTID i andra person (“du”) och talar direkt till eleven.
+All text skrivs i andra person (“du”).
 
-=== ELEVENS NAMN (VIKTIGT) ===
-Om "student_name" finns: använd exakt det namnet (inte “Björn” om det inte är namnet).
-Nämn namnet naturligt MAX 1 gång per kapitel, helst i första stycket.
+=== ELEVENS NAMN ===
+Om "student_name" finns: använd exakt det namnet naturligt MAX 1 gång per kapitel (gärna i början).
 
-=== MÅLGRUPP ===
-Anpassa språk, tempo och ordval till elevens årskurs. Korta stycken.
+=== LÄRARFAKTA ===
+Lärarfakta är LAG. Du får inte motsäga det. Du får däremot visa fakta genom händelser/miljö.
 
-=== TON ===
-Trygg & varm (bas) + Äventyrlig (driver framåt) + Lätt humor (diskret).
+=== LÄNGD (HÅRD) ===
+"chapter_text" ska vara ungefär ${minWords}–${maxWords} ord. Aldrig över max.
 
-=== HÅRDA REGLER ===
-1) LÄRARFAKTA ÄR LAG. Du får inte motsäga uppdragets fakta.
-2) ELEVENS IDÉ vävs in, men får aldrig sabotera fakta eller åldersnivå.
-3) Inget olämpligt innehåll. Inga svordomar. Ingen vuxencynism.
-4) Inga meta-kommentarer (“som en AI…”).
+=== TOUR MODE (DET HÄR ÄR HELA GREJEN) ===
+Varje kapitel ska kännas som en GUIDAD RUNDTUR:
+- En guide (t.ex. Poseidon eller Hades) leder dig fysiskt genom en plats.
+- Guiden ska VISA saker, inte stå och prata om abstrakta grejer.
+- Du ska RÖRA DIG till en ny delplats varje kapitel.
 
-=== LÄNGD (KRITISKT) ===
-Håll "chapter_text" ungefär ${minWords}–${maxWords} ord. Gå inte över max.
+HÅRDA TOUR-REGLER:
+1) NY DELPLATS VARJE KAPITEL.
+   - Du får inte stanna kvar och “prata runt” i samma scen.
+   - Exempel delplatser: “Havsmosaiken”, “Korallbiblioteket”, “Tritons ekorum”, “Styx-stranden”, “Färjkarlsbryggan”, “Porten av ben”, etc.
+2) SETPIECE-KRAV: Varje kapitel måste innehålla:
+   A) 2–3 saker som du ser (konkreta objekt/landmärken)
+   B) 1 sak som händer (en liten incident/mini-hinder/mini-mysterie)
+   C) 1 tydlig rörelse framåt (ni går vidare till nästa delplats eller tar ett beslut)
+3) DIALOG: Max 5 repliker totalt per kapitel. Ingen “mystisk röst”-utfyllnad.
 
-=== EXPLORATION-FIRST (NYCKELN) ===
-Varje kapitel MÅSTE innehålla:
-A) minst 3 konkreta miljödetaljer (ljud/ljus/lukt/temperatur/rörelse)
-B) minst 2 “upptäckter” (något nytt syns/hörs/hittas – även litet)
-C) minst 1 händelse som flyttar storyn framåt (ny plats, spår, ledtråd, beslut, ny person)
+=== ANTI-FLUFF (FÖRBJUDET) ===
+Följande är förbjudet om det inte är absolut nödvändigt:
+- “Inte allt är synligt…”, “du känner en mystisk närvaro…”, “en röst viskar…” (som utfyllnad)
+- “Vi tre gudar…” / “utan oss blir världen kaos” / “jag styr X, han styr Y” (tjöt)
+- Att rada upp flera gudar med presentationstal.
 
-=== ANTI-ROLLCALL (VIKTIGT – STOPPA “TRE GUDARNA”) ===
-Du får INTE starta med att rada upp flera gudar med “Jag är X och jag styr Y”.
-Regler:
-- I kapitel 1: introducera max 1 gud/mentor tydligt med namn.
-- Övriga (om de alls ska finnas): ska bara anas via miljön (eko, skugga, spår, symbol, ljud) – inga presentationstal.
-- I kapitel 2+: om flera gudar finns i scenen: max 1 kort replik per figur och inget “vi tre… utan oss… jag styr…”.
-Fokus ska vara på platsen, sakerna, mysteriet – inte på att de pratar om varandra.
+Om fler gudar nämns:
+- Max 1 kort mening och vidare till handling/utforskning.
 
-=== DIALOG-BUDGET ===
-Max 6 repliker per kapitel totalt. Dialog får aldrig bli en “X sa / Y sa / Z sa”-loop.
-
-=== MIKROFAKTA (SMART) ===
-Lägg in 1–2 mikrofakta per kapitel, kort och invävt i scenen (inte uppslagsbok).
-Stil:
-“Floden Styx rann förbi, mörk som bläck. Hades sa lågt att alla själar måste passera här – och därför fick ingen fuska.”
+=== MIKROFAKTA (BRA VERSIONEN) ===
+Du ska lägga in 1–2 korta fakta-inslag per kapitel, invävda i platsen.
+EXAKT stil:
+“Floden Styx rann förbi, mörk som bläck. Hades pekade: alla själar måste passera här – därför fick ingen fuska.”
 
 === INTERAKTION ===
-Om interaktivt läge: ställ max 1 fråga i kapitlet (känns som lek).
+Om interaktivt läge: ställ max 1 fråga i kapitlet (ett val som påverkar nästa delplats).
 
-=== REFLEKTIONSFRÅGOR (EXAKT 3 – OCH INTE REPETITIVA) ===
-Frågorna ska variera och kopplas till kapitlets händelser + lärarens fakta.
-Förbjudet om inte lärarfaktan kräver det: “Vilka tre gudar mötte du…”.
-Format:
-1) Fakta (vad)
-2) Förståelse (varför)
-3) Personlig (vad hade du gjort)
-
-=== KONSEKVENS / STATUS-LÅSNING ===
-Respektera locked_state. Ingen “reset” av storyn.
+=== KONSEKVENS / STATUS ===
+Du får locked_state med t.ex. current_location, guide, visited_locations.
+- Respektera status.
+- Uppdatera så att storyn driver framåt (ny delplats).
 
 === OUTPUTFORMAT (ENDAST JSON) ===
 {
@@ -172,10 +169,16 @@ Respektera locked_state. Ingen “reset” av storyn.
   "reflection_questions": ["...","...","..."],
   "worldstate": {
     "chapterIndex": ${chapterIndex},
-    "summary_for_next": "2–4 meningar. Sist en rad: STATE: {}",
+    "summary_for_next": "2–4 meningar. Sist: STATE: {...}",
     "previousChapters": []
   }
 }
+
+=== REFLEKTIONSFRÅGOR (EXAKT 3, VARIERADE) ===
+1) Fakta (vad) – kopplad till delplatsen/händelsen
+2) Förståelse (varför)
+3) Personlig (vad hade du gjort?)
+FÖRBJUDET som standard: “Vilka tre gudar…”.
 `.trim();
 
     // User payload
@@ -187,7 +190,14 @@ Respektera locked_state. Ingen “reset” av storyn.
       prompt_mode: (promptEffective ? "new_direction" : "continue_forward"),
       previous_summary: incomingSummary,
       worldstate: incomingWorldState || {},
-      locked_state: lockedState,
+      locked_state: {
+        ...lockedState,
+        current_location: currentLocation,
+        visited_locations: visited,
+        guide: guideName,
+      },
+      // Liten hint: driver mot tour-känslan du vill ha
+      author_intent: "TOUR_MODE: guidning + rundtur + nya delplatser varje kapitel. Mindre snack, mer visar runt.",
     };
 
     const openaiResponse = await fetch("https://api.openai.com/v1/chat/completions", {
@@ -236,9 +246,9 @@ Respektera locked_state. Ingen “reset” av storyn.
     let rq = safeArr(parsed.reflection_questions).map(qClean).filter(Boolean);
 
     const topic = safeStr(teacherMission.topic || "ämnet");
-    const fallback1 = `Vad var det viktigaste du lade märke till om ${topic} i kapitlet?`;
-    const fallback2 = `Varför tror du att den detaljen var viktig i berättelsen?`;
-    const fallback3 = `Vad hade du gjort om du var där själv?`;
+    const fallback1 = `Vilken ny sak såg du eller upptäckte du i kapitlet om ${topic}?`;
+    const fallback2 = `Varför tror du att den saken var viktig i berättelsen?`;
+    const fallback3 = `Vad hade du gjort om du stod där på riktigt?`;
 
     if (rq.length >= 3) rq = rq.slice(0, 3);
     while (rq.length < 3) {
