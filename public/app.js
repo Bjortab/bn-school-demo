@@ -1,24 +1,24 @@
 // public/app.js
-// BN-Skola Demo v1.0 (stabil)
-// - Rensa saga
-// - Prompt kvar = startar inte om (BN-Kids-beteende)
-// - Läraren styr: max kapitel + längd
+// BN-Skola v1.4 – frontend-logik
+// Fixar: kapitel-spar + kapitelväljare + spinner/disable + reset
 
 let teacherMission = null;
 
+// OBS: worldState.previousChapters i backend är summaries, inte full text.
+// Därför sparar vi kapiteltexter separat i localStorage.
 let worldState = {
   chapterIndex: 0,
-  previousChapters: [],
-  summary_for_next: ""
+  previousChapters: [] // summaries från backend
 };
 
-let lastPromptUsed = "";
+let chapterTexts = []; // [{ chapterIndex: 1, text: "..." }, ...]
 
 const LS_MISSION_KEY = "bn_school_teacher_mission_v1";
 const LS_WORLDSTATE_KEY = "bn_school_worldstate_v1";
-const LS_LASTPROMPT_KEY = "bn_school_last_prompt_v1";
+const LS_CHAPTERTEXTS_KEY = "bn_school_chapter_texts_v1";
 
 document.addEventListener("DOMContentLoaded", () => {
+  // Mode-knappar
   const modeTeacherBtn = document.getElementById("mode-teacher");
   const modeStudentBtn = document.getElementById("mode-student");
   const teacherPanel = document.getElementById("teacher-panel");
@@ -37,34 +37,62 @@ document.addEventListener("DOMContentLoaded", () => {
     teacherPanel.classList.add("hidden");
     studentPanel.classList.remove("hidden");
     renderLessonSummary();
-    renderLatestChapter();
+    renderChapterUI(); // viktigt
   });
 
-  document.getElementById("save-mission-btn").addEventListener("click", onSaveMissionClicked);
-  document.getElementById("generate-chapter-btn").addEventListener("click", onGenerateChapterClicked);
-  document.getElementById("reset-story-btn").addEventListener("click", onResetStoryClicked);
+  // Lärarform
+  const saveMissionBtn = document.getElementById("save-mission-btn");
+  saveMissionBtn.addEventListener("click", onSaveMissionClicked);
 
+  // Elevknappar
+  const generateChapterBtn = document.getElementById("generate-chapter-btn");
+  generateChapterBtn.addEventListener("click", onGenerateChapterClicked);
+
+  const resetBtn = document.getElementById("reset-story-btn");
+  if (resetBtn) resetBtn.addEventListener("click", onResetStoryClicked);
+
+  // Kapitelväljare
+  const chapterSelect = document.getElementById("chapter-select");
+  if (chapterSelect) {
+    chapterSelect.addEventListener("change", (e) => {
+      renderChapterUI(e.target.value);
+    });
+  }
+
+  // Ladda state
   loadFromLocalStorage();
   renderSavedMission();
   renderLessonSummary();
-  renderLatestChapter();
+  renderChapterUI();
 });
 
+// ---------- Spinner ----------
+function showSpinner(show) {
+  const overlay = document.getElementById("spinnerOverlay");
+  if (!overlay) return;
+  overlay.classList.toggle("hidden", !show);
+}
+
+// ---------- LocalStorage ----------
 function loadFromLocalStorage() {
   try {
     const missionRaw = localStorage.getItem(LS_MISSION_KEY);
     const wsRaw = localStorage.getItem(LS_WORLDSTATE_KEY);
-    const lpRaw = localStorage.getItem(LS_LASTPROMPT_KEY);
+    const chRaw = localStorage.getItem(LS_CHAPTERTEXTS_KEY);
 
     if (missionRaw) {
       teacherMission = JSON.parse(missionRaw);
       fillTeacherForm(teacherMission);
     }
+
     if (wsRaw) {
-      worldState = JSON.parse(wsRaw);
+      const parsedWS = JSON.parse(wsRaw);
+      if (parsedWS && typeof parsedWS === "object") worldState = parsedWS;
     }
-    if (lpRaw) {
-      lastPromptUsed = String(lpRaw || "");
+
+    if (chRaw) {
+      const parsedCh = JSON.parse(chRaw);
+      if (Array.isArray(parsedCh)) chapterTexts = parsedCh;
     }
   } catch (e) {
     console.warn("Kunde inte läsa från localStorage:", e);
@@ -75,55 +103,89 @@ function saveToLocalStorage() {
   try {
     if (teacherMission) localStorage.setItem(LS_MISSION_KEY, JSON.stringify(teacherMission));
     localStorage.setItem(LS_WORLDSTATE_KEY, JSON.stringify(worldState));
-    localStorage.setItem(LS_LASTPROMPT_KEY, String(lastPromptUsed || ""));
+    localStorage.setItem(LS_CHAPTERTEXTS_KEY, JSON.stringify(chapterTexts));
   } catch (e) {
     console.warn("Kunde inte spara till localStorage:", e);
   }
 }
 
+// ---------- Lärarläge ----------
 function fillTeacherForm(mission) {
-  document.getElementById("topic-input").value = mission.topic || "";
-  document.getElementById("facts-input").value = (mission.facts || []).join("\n");
-  document.getElementById("goals-input").value = (mission.learning_goals || []).join("\n");
-  document.getElementById("grade-select").value = mission.grade_level || "";
-  document.getElementById("style-select").value = mission.story_style || "äventyrlig";
-  document.getElementById("interaction-checkbox").checked = !!mission.requires_interaction;
+  const topicInput = document.getElementById("topic-input");
+  const factsInput = document.getElementById("facts-input");
+  const goalsInput = document.getElementById("goals-input");
+  const gradeSelect = document.getElementById("grade-select");
+  const styleSelect = document.getElementById("style-select");
+  const interactionCheckbox = document.getElementById("interaction-checkbox");
 
-  document.getElementById("maxchapters-select").value = String(mission.max_chapters ?? 4);
-  document.getElementById("chapterlength-select").value = String(mission.chapter_length ?? "kort");
-}
+  topicInput.value = mission.topic || "";
+  factsInput.value = (mission.facts || []).join("\n");
+  goalsInput.value = (mission.learning_goals || []).join("\n");
+  gradeSelect.value = mission.grade_level || "";
+  styleSelect.value = mission.story_style || "äventyrlig";
+  interactionCheckbox.checked = !!mission.requires_interaction;
 
-function resetStoryStateOnly() {
-  worldState = { chapterIndex: 0, previousChapters: [], summary_for_next: "" };
-  lastPromptUsed = "";
-  saveToLocalStorage();
+  // (valfria fält om du har dem i UI)
+  const maxCh = document.getElementById("max-chapters");
+  if (maxCh && typeof mission.max_chapters === "number") maxCh.value = String(mission.max_chapters);
+
+  const lenSel = document.getElementById("chapter-length");
+  if (lenSel && mission.chapter_length) lenSel.value = mission.chapter_length;
 }
 
 function onSaveMissionClicked() {
+  const topicInput = document.getElementById("topic-input");
+  const factsInput = document.getElementById("facts-input");
+  const goalsInput = document.getElementById("goals-input");
+  const gradeSelect = document.getElementById("grade-select");
+  const styleSelect = document.getElementById("style-select");
+  const interactionCheckbox = document.getElementById("interaction-checkbox");
   const statusEl = document.getElementById("teacher-status");
+
   statusEl.textContent = "";
   statusEl.classList.remove("error");
 
-  const topic = (document.getElementById("topic-input").value || "").trim();
+  const topic = (topicInput.value || "").trim();
+  const facts = (factsInput.value || "")
+    .split("\n")
+    .map((s) => s.trim())
+    .filter(Boolean);
 
-  const facts = (document.getElementById("facts-input").value || "")
-    .split("\n").map(s => s.trim()).filter(Boolean);
+  const learningGoals = (goalsInput.value || "")
+    .split("\n")
+    .map((s) => s.trim())
+    .filter(Boolean);
 
-  const learningGoals = (document.getElementById("goals-input").value || "")
-    .split("\n").map(s => s.trim()).filter(Boolean);
+  const gradeLevel = gradeSelect.value;
+  const storyStyle = styleSelect.value || "äventyrlig";
+  const requiresInteraction = interactionCheckbox.checked;
 
-  const gradeLevel = document.getElementById("grade-select").value;
-  const storyStyle = document.getElementById("style-select").value || "äventyrlig";
-  const requiresInteraction = document.getElementById("interaction-checkbox").checked;
+  if (!topic) {
+    statusEl.textContent = "Du måste ange ett ämne.";
+    statusEl.classList.add("error");
+    return;
+  }
+  if (facts.length === 0) {
+    statusEl.textContent = "Lägg till minst en faktarad.";
+    statusEl.classList.add("error");
+    return;
+  }
+  if (!gradeLevel) {
+    statusEl.textContent = "Välj årskurs.";
+    statusEl.classList.add("error");
+    return;
+  }
 
-  const maxChapters = parseInt(document.getElementById("maxchapters-select").value || "4", 10);
-  const chapterLength = String(document.getElementById("chapterlength-select").value || "kort");
+  // Valfria fält (om du har dem i HTML)
+  const maxChEl = document.getElementById("max-chapters");
+  const maxChapters = maxChEl ? parseInt(maxChEl.value, 10) : NaN;
 
-  if (!topic) return fail(statusEl, "Du måste ange ett ämne.");
-  if (facts.length === 0) return fail(statusEl, "Lägg till minst en faktarad.");
-  if (!gradeLevel) return fail(statusEl, "Välj årskurs.");
-  if (!Number.isFinite(maxChapters) || maxChapters < 1 || maxChapters > 20) return fail(statusEl, "Max antal kapitel måste vara 1–20.");
-  if (!["kort", "normal", "lång"].includes(chapterLength)) return fail(statusEl, "Kapitel-längd måste vara Kort/Normal/Lång.");
+  const lengthEl = document.getElementById("chapter-length");
+  const chapterLength = lengthEl ? (lengthEl.value || "normal") : "normal";
+
+  // Bonusfakta: demo-on/off (om du vill)
+  const enrichEl = document.getElementById("allow-enrichment");
+  const allowEnrichment = enrichEl ? !!enrichEl.checked : true; // default true i demo
 
   teacherMission = {
     topic,
@@ -132,27 +194,29 @@ function onSaveMissionClicked() {
     grade_level: gradeLevel,
     story_style: storyStyle,
     requires_interaction: requiresInteraction,
-    max_chapters: maxChapters,
-    chapter_length: chapterLength
+
+    // extras (backend v1.3 kan använda dem)
+    max_chapters: Number.isFinite(maxChapters) && maxChapters > 0 ? maxChapters : undefined,
+    chapter_length: chapterLength,
+    allow_enrichment: allowEnrichment
   };
 
-  resetStoryStateOnly();
+  // Nollställ story för ny lektion
+  worldState = { chapterIndex: 0, previousChapters: [] };
+  chapterTexts = [];
+
   saveToLocalStorage();
   renderSavedMission();
   renderLessonSummary();
-  renderLatestChapter();
+  renderChapterUI();
 
-  statusEl.textContent = "Lektionsuppdrag sparat.";
-}
-
-function fail(statusEl, msg) {
-  statusEl.textContent = msg;
-  statusEl.classList.add("error");
+  statusEl.textContent = "Lektionsuppdrag sparat. Elevläge är redo.";
 }
 
 function renderSavedMission() {
   const container = document.getElementById("saved-mission");
   container.innerHTML = "";
+
   if (!teacherMission) return;
 
   const h3 = document.createElement("h3");
@@ -160,16 +224,16 @@ function renderSavedMission() {
   container.appendChild(h3);
 
   const p = document.createElement("p");
-  p.textContent = `${teacherMission.topic} – Åk ${teacherMission.grade_level}, stil: ${teacherMission.story_style} • max kapitel: ${teacherMission.max_chapters} • längd: ${teacherMission.chapter_length}`;
+  p.textContent = `${teacherMission.topic} – Åk ${teacherMission.grade_level}, stil: ${teacherMission.story_style}`;
   container.appendChild(p);
 
-  if (teacherMission.learning_goals && teacherMission.learning_goals.length) {
-    const t = document.createElement("p");
-    t.textContent = "Lärandemål:";
-    container.appendChild(t);
+  if (teacherMission.learning_goals && teacherMission.learning_goals.length > 0) {
+    const goalsTitle = document.createElement("p");
+    goalsTitle.textContent = "Lärandemål:";
+    container.appendChild(goalsTitle);
 
     const ul = document.createElement("ul");
-    teacherMission.learning_goals.forEach(g => {
+    teacherMission.learning_goals.forEach((g) => {
       const li = document.createElement("li");
       li.textContent = g;
       ul.appendChild(li);
@@ -178,13 +242,15 @@ function renderSavedMission() {
   }
 }
 
+// ---------- Elevläge ----------
 function renderLessonSummary() {
   const summaryEl = document.getElementById("lesson-summary");
   summaryEl.innerHTML = "";
 
   if (!teacherMission) {
     const p = document.createElement("p");
-    p.textContent = "Ingen lektionsplan är vald ännu. Be läraren skapa ett lektionsuppdrag i Lärarläget.";
+    p.textContent =
+      "Ingen lektionsplan är vald ännu. Be läraren skapa ett lektionsuppdrag i Lärarläget.";
     summaryEl.appendChild(p);
     return;
   }
@@ -194,16 +260,16 @@ function renderLessonSummary() {
   summaryEl.appendChild(p1);
 
   const p2 = document.createElement("p");
-  p2.innerHTML = `<strong>Årskurs:</strong> ${teacherMission.grade_level} &nbsp; <strong>Stil:</strong> ${teacherMission.story_style} &nbsp; <strong>Längd:</strong> ${teacherMission.chapter_length} &nbsp; <strong>Max kapitel:</strong> ${teacherMission.max_chapters}`;
+  p2.innerHTML = `<strong>Årskurs:</strong> ${teacherMission.grade_level} &nbsp; <strong>Stil:</strong> ${teacherMission.story_style}`;
   summaryEl.appendChild(p2);
 
-  if (teacherMission.learning_goals && teacherMission.learning_goals.length) {
+  if (teacherMission.learning_goals && teacherMission.learning_goals.length > 0) {
     const p3 = document.createElement("p");
     p3.innerHTML = "<strong>Lärandemål:</strong>";
     summaryEl.appendChild(p3);
 
     const ul = document.createElement("ul");
-    teacherMission.learning_goals.forEach(g => {
+    teacherMission.learning_goals.forEach((g) => {
       const li = document.createElement("li");
       li.textContent = g;
       ul.appendChild(li);
@@ -212,94 +278,99 @@ function renderLessonSummary() {
   }
 }
 
-function renderLatestChapter() {
-  const metaEl = document.getElementById("chapter-meta");
+// Kapitel UI (dropdown + text)
+function renderChapterUI(selected = "latest") {
+  const chapterSelect = document.getElementById("chapter-select");
+  const chapterInfo = document.getElementById("chapter-info");
   const storyEl = document.getElementById("story-output");
-  const questionsEl = document.getElementById("questions-output");
-  const btn = document.getElementById("generate-chapter-btn");
 
-  const pcs = Array.isArray(worldState.previousChapters) ? worldState.previousChapters : [];
+  if (!chapterSelect || !chapterInfo || !storyEl) return;
 
-  if (!pcs.length) {
-    metaEl.textContent = "";
+  const hasChapters = chapterTexts.length > 0;
+
+  // Build dropdown
+  chapterSelect.innerHTML = "";
+
+  const latestOpt = document.createElement("option");
+  latestOpt.value = "latest";
+  latestOpt.textContent = hasChapters ? `Senaste (Kapitel ${chapterTexts.length})` : "Inga kapitel än";
+  chapterSelect.appendChild(latestOpt);
+
+  chapterTexts.forEach((ch, idx) => {
+    const opt = document.createElement("option");
+    opt.value = String(ch.chapterIndex);
+    opt.textContent = `Kapitel ${ch.chapterIndex}`;
+    chapterSelect.appendChild(opt);
+  });
+
+  if (!hasChapters) {
+    chapterInfo.textContent = "";
     storyEl.textContent = "";
-    questionsEl.innerHTML = "";
-    btn.textContent = "Starta första kapitlet";
+    chapterSelect.value = "latest";
     return;
   }
 
-  const latest = pcs[pcs.length - 1];
-  const chapterNum = latest?.chapterIndex || worldState.chapterIndex || pcs.length;
+  let chosen = null;
 
-  metaEl.textContent = `Kapitel ${chapterNum}`;
-  storyEl.textContent = latest?.chapter_text || "";
-
-  questionsEl.innerHTML = "";
-  const qs = Array.isArray(latest?.reflection_questions) ? latest.reflection_questions : [];
-  if (qs.length) {
-    const h3 = document.createElement("h3");
-    h3.textContent = "Reflektionsfrågor att diskutera:";
-    questionsEl.appendChild(h3);
-
-    const ol = document.createElement("ol");
-    qs.forEach(q => {
-      const li = document.createElement("li");
-      li.textContent = String(q || "");
-      ol.appendChild(li);
-    });
-    questionsEl.appendChild(ol);
+  if (selected === "latest" || !selected) {
+    chosen = chapterTexts[chapterTexts.length - 1];
+    chapterSelect.value = "latest";
+  } else {
+    const wanted = parseInt(selected, 10);
+    chosen = chapterTexts.find((x) => x.chapterIndex === wanted) || chapterTexts[chapterTexts.length - 1];
+    chapterSelect.value = chosen ? String(chosen.chapterIndex) : "latest";
   }
 
-  btn.textContent = "Nästa kapitel";
+  storyEl.textContent = chosen?.text || "";
+  chapterInfo.textContent = `Visar kapitel ${chosen?.chapterIndex || "?"} av ${chapterTexts.length}`;
 }
 
-function onResetStoryClicked() {
-  if (!confirm("Vill du rensa sagan på den här enheten?")) return;
+function upsertChapterText(chapterIndex, text) {
+  const idx = chapterTexts.findIndex((c) => c.chapterIndex === chapterIndex);
+  if (idx >= 0) chapterTexts[idx] = { chapterIndex, text };
+  else chapterTexts.push({ chapterIndex, text });
 
-  resetStoryStateOnly();
-
-  document.getElementById("student-status").textContent = "Sagan rensad.";
-  document.getElementById("student-status").classList.remove("error");
-  document.getElementById("chapter-meta").textContent = "";
-  document.getElementById("story-output").textContent = "";
-  document.getElementById("questions-output").innerHTML = "";
-  document.getElementById("generate-chapter-btn").textContent = "Starta första kapitlet";
-  // prompten får stå kvar – men den startar inte om automatiskt
-}
-
-function shouldSendStudentPrompt(rawPrompt) {
-  const p = (rawPrompt || "").trim();
-  const idx = Number(worldState.chapterIndex || 0);
-
-  if (idx === 0) return p;        // kapitel 1 behöver prompt
-  if (!p) return "";              // inget att skicka
-  if (p === lastPromptUsed) return ""; // kvarlämnad prompt ignoreras
-  return p;                       // ny/ändrad prompt skickas
+  // sortera i ordning (för säkerhets skull)
+  chapterTexts.sort((a, b) => a.chapterIndex - b.chapterIndex);
 }
 
 async function onGenerateChapterClicked() {
   const statusEl = document.getElementById("student-status");
+  const questionsEl = document.getElementById("questions-output");
+  const metaEl = document.getElementById("chapter-meta");
   const btn = document.getElementById("generate-chapter-btn");
   const promptInput = document.getElementById("student-prompt-input");
 
   statusEl.textContent = "";
   statusEl.classList.remove("error");
 
-  if (!teacherMission) return fail(statusEl, "Ingen lektionsplan är vald. Låt läraren skapa ett uppdrag först.");
+  if (!teacherMission) {
+    statusEl.textContent = "Ingen lektionsplan är vald. Låt läraren skapa ett uppdrag först.";
+    statusEl.classList.add("error");
+    return;
+  }
 
-  const studentPromptToSend = shouldSendStudentPrompt(promptInput.value || "");
+  const studentPrompt = (promptInput.value || "").trim();
 
-  if (!studentPromptToSend && Number(worldState.chapterIndex || 0) === 0) {
-    return fail(statusEl, "Skriv en idé eller prompt för första kapitlet.");
+  if (!studentPrompt && worldState.chapterIndex === 0) {
+    statusEl.textContent = "Skriv en idé eller prompt för första kapitlet.";
+    statusEl.classList.add("error");
+    return;
   }
 
   btn.disabled = true;
-  btn.textContent = Number(worldState.chapterIndex || 0) === 0 ? "Skapar första kapitlet..." : "Skapar nästa kapitel...";
+  showSpinner(true);
+
+  btn.textContent = worldState.chapterIndex === 0 ? "Skapar första kapitlet..." : "Skapar nästa kapitel...";
+
+  // rensa visning
+  questionsEl.innerHTML = "";
+  metaEl.textContent = "";
 
   try {
     const payload = {
       teacher_mission: teacherMission,
-      student_prompt: studentPromptToSend,
+      student_prompt: studentPrompt,
       worldstate: worldState
     };
 
@@ -310,28 +381,76 @@ async function onGenerateChapterClicked() {
     });
 
     if (!resp.ok) {
-      const t = await resp.text();
-      console.error("Fel från server:", resp.status, t);
-      if (resp.status === 400) return fail(statusEl, "Max antal kapitel är nått för den här lektionen.");
-      return fail(statusEl, "Fel från servern. Försök igen.");
+      const errText = await resp.text();
+      console.error("Fel från server:", errText);
+      statusEl.textContent = "Fel från servern. Försök igen.";
+      statusEl.classList.add("error");
+      return;
     }
 
     const data = await resp.json();
 
-    if (studentPromptToSend) lastPromptUsed = studentPromptToSend.trim();
-
+    // uppdatera state
     worldState = data.worldstate || worldState;
     worldState.chapterIndex = data.chapterIndex ?? worldState.chapterIndex;
 
-    saveToLocalStorage();
-    renderLatestChapter();
+    // spara kapiteltext (det du tappade!)
+    const chapText = data.chapterText || "";
+    upsertChapterText(worldState.chapterIndex, chapText);
 
+    saveToLocalStorage();
+
+    // visa kapitelinfo
+    metaEl.textContent = `Kapitel ${data.chapterIndex}`;
+
+    // rendera kapitel + dropdown
+    renderChapterUI("latest");
+
+    // reflektionsfrågor
+    const questions = data.reflectionQuestions || [];
+    if (questions.length > 0) {
+      const h3 = document.createElement("h3");
+      h3.textContent = "Reflektionsfrågor att diskutera:";
+      questionsEl.appendChild(h3);
+
+      const ol = document.createElement("ol");
+      questions.forEach((q) => {
+        const li = document.createElement("li");
+        li.textContent = q;
+        ol.appendChild(li);
+      });
+      questionsEl.appendChild(ol);
+    }
+
+    // knapptext
+    btn.textContent = "Nästa kapitel";
     statusEl.textContent = "Kapitel genererat.";
   } catch (e) {
     console.error("Nätverksfel:", e);
-    fail(statusEl, "Nätverksfel. Kontrollera uppkoppling och försök igen.");
+    statusEl.textContent = "Nätverksfel. Kontrollera uppkoppling och försök igen.";
+    statusEl.classList.add("error");
   } finally {
     btn.disabled = false;
-    btn.textContent = Number(worldState.chapterIndex || 0) === 0 ? "Starta första kapitlet" : "Nästa kapitel";
+    showSpinner(false);
   }
+}
+
+function onResetStoryClicked() {
+  if (!confirm("Vill du rensa sagan på den här enheten?")) return;
+
+  worldState = { chapterIndex: 0, previousChapters: [] };
+  chapterTexts = [];
+
+  saveToLocalStorage();
+  renderChapterUI();
+
+  const metaEl = document.getElementById("chapter-meta");
+  const questionsEl = document.getElementById("questions-output");
+  const statusEl = document.getElementById("student-status");
+  const btn = document.getElementById("generate-chapter-btn");
+
+  if (metaEl) metaEl.textContent = "";
+  if (questionsEl) questionsEl.innerHTML = "";
+  if (statusEl) statusEl.textContent = "Sagan är rensad.";
+  if (btn) btn.textContent = "Starta första kapitlet";
 }
