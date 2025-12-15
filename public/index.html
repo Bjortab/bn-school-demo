@@ -39,11 +39,11 @@
           <label for="facts-input">Fakta (en rad per punkt)</label>
           <textarea
             id="facts-input"
-            rows="6"
+            rows="5"
             placeholder="Ex:
 Tyskland invaderade Polen 1939.
-Sverige var neutralt.
-Kriget tog slut 1945."
+Kriget tog slut 1945.
+Sverige var neutralt."
           ></textarea>
         </div>
 
@@ -90,26 +90,25 @@ Kunna nämna två viktiga händelser."
           </label>
         </div>
 
-        <!-- NYTT: Kapitel-längd (kort/normal/lång) -->
         <div class="form-group">
-          <label for="length-select">Kapitel-längd</label>
-          <select id="length-select">
-            <option value="kort">Kort</option>
-            <option value="normal" selected>Normal</option>
-            <option value="lång">Lång</option>
+          <label for="max-chapters-select">Max antal kapitel</label>
+          <select id="max-chapters-select">
+            <option value="2">2</option>
+            <option value="3">3</option>
+            <option value="4" selected>4</option>
+            <option value="5">5</option>
+            <option value="6">6</option>
           </select>
-          <small class="help-text">Kort = snabbare, Normal = lagom, Lång = mer detaljer.</small>
         </div>
 
-        <!-- (Valfritt senare) Max kapitel – lämnar kvar plats men vi använder inte ännu -->
         <div class="form-group">
-          <label for="maxchapters-select">Max antal kapitel (demo)</label>
-          <select id="maxchapters-select">
-            <option value="4" selected>4</option>
-            <option value="6">6</option>
-            <option value="8">8</option>
-            <option value="10">10</option>
+          <label for="chapter-length-select">Kapitel-längd</label>
+          <select id="chapter-length-select">
+            <option value="kort">Kort</option>
+            <option value="normal" selected>Normal</option>
+            <option value="lang">Lång</option>
           </select>
+          <small class="hint-text">Tips: “Lång” får vara rejält längre än tidigare.</small>
         </div>
       </div>
 
@@ -124,23 +123,27 @@ Kunna nämna två viktiga händelser."
     <!-- ELEV-LÄGE -->
     <section id="student-panel" class="panel hidden">
       <h2>Elevläge – starta äventyret</h2>
-      <p class="panel-intro">
-        Eleven skriver sin idé, BN-Skola väver ihop den med lärarens fakta.
-      </p>
+      <p class="panel-intro">Eleven skriver sin idé, BN-Skola väver ihop den med lärarens fakta.</p>
 
       <section id="lesson-summary" class="lesson-summary"></section>
 
-      <div class="form-group">
-        <label for="student-prompt-input">Elevens idé / prompt</label>
-        <textarea
-          id="student-prompt-input"
-          rows="4"
-          placeholder="Ex: Vad händer nu efter 1939?"
-        ></textarea>
-        <small class="help-text">
-          Tips: I BN-Kids-stil används prompten som “start” eller “ny riktning”.
-          Om du lämnar den kvar och bara klickar Nästa kapitel, fortsätter berättelsen framåt.
-        </small>
+      <div class="form-grid student-grid">
+        <div class="form-group">
+          <label for="student-name-input">Elevens namn (valfritt)</label>
+          <input id="student-name-input" type="text" placeholder="Ex: Alex" />
+        </div>
+
+        <div class="form-group">
+          <label for="student-prompt-input">Elevens idé / prompt</label>
+          <textarea
+            id="student-prompt-input"
+            rows="3"
+            placeholder="Ex: Vi vaknar i en skog där Zeus har tappat sin åskvigg, och vi måste hjälpa honom hitta den."
+          ></textarea>
+          <small class="hint-text">
+            Tips: BN-Kids-stil: prompten används för att “starta”. Låt den gärna ligga kvar – nästa kapitel fortsätter ändå framåt.
+          </small>
+        </div>
       </div>
 
       <div class="button-row">
@@ -149,10 +152,10 @@ Kunna nämna två viktiga händelser."
         <span id="student-status" class="status-text"></span>
       </div>
 
-      <div class="chapter-controls">
+      <div class="chapter-tools">
         <label for="chapter-select"><strong>Visa kapitel:</strong></label>
         <select id="chapter-select"></select>
-        <span id="chapter-count" class="muted"></span>
+        <span id="chapter-counter" class="chapter-counter"></span>
       </div>
 
       <section id="chapter-meta" class="chapter-meta"></section>
@@ -161,17 +164,14 @@ Kunna nämna två viktiga händelser."
     </section>
   </main>
 
-  <footer class="app-footer">
-    <small>BN-Skola v1 – demo</small>
-  </footer>
-
-  <!-- Spinner-overlay -->
-  <div id="spinner-overlay" class="spinner-overlay hidden" aria-hidden="true">
-    <div class="spinner-card">
-      <div class="spinner"></div>
-      <div class="spinner-text">Skapar kapitel…</div>
-    </div>
+  <div id="loading-overlay" class="loading-overlay hidden" aria-hidden="true">
+    <div class="spinner"></div>
+    <div class="loading-text">Skapar kapitel…</div>
   </div>
+
+  <footer class="app-footer">
+    <small>BN-Skola v1 – demo för Region Dalarna</small>
+  </footer>
 
   <script src="app.js" defer></script>
 </body>
