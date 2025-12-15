@@ -1,6 +1,6 @@
 // functions/api/bnschool_generate.js
-// BN-Skola v1.4 – StoryEngine backend för Cloudflare Pages Functions
-// Fixar deploy + prompt-beteende (BN-Kids-stil) + kapitel-sparande + mindre “fakta-tjat”, mer utforskning.
+// BN-Skola v1.5 – StoryEngine backend för Cloudflare Pages Functions
+// Fix: stoppar “tre gudar-rollcall”, minskar dialog, ökar utforskning + stabil prompt-beteende + kapitel-sparande.
 
 export async function onRequestPost(context) {
   const { request, env } = context;
@@ -48,11 +48,11 @@ export async function onRequestPost(context) {
     const lengthTable = {
       2: { kort: [70, 90], normal: [90, 120], lang: [130, 170] },
       3: { kort: [90, 120], normal: [120, 160], lang: [170, 220] },
-      4: { kort: [120, 160], normal: [160, 210], lang: [220, 340] }, // lång lite längre (som du ville)
-      5: { kort: [140, 190], normal: [190, 260], lang: [270, 380] },
-      6: { kort: [160, 210], normal: [210, 290], lang: [300, 420] },
-      7: { kort: [180, 240], normal: [240, 330], lang: [340, 470] },
-      8: { kort: [200, 270], normal: [270, 370], lang: [380, 540] },
+      4: { kort: [120, 160], normal: [160, 210], lang: [230, 360] }, // lång lite längre
+      5: { kort: [140, 190], normal: [190, 260], lang: [270, 390] },
+      6: { kort: [160, 210], normal: [210, 290], lang: [300, 430] },
+      7: { kort: [180, 240], normal: [240, 330], lang: [340, 480] },
+      8: { kort: [200, 270], normal: [270, 370], lang: [380, 550] },
       9: { kort: [220, 310], normal: [310, 430], lang: [440, 620] },
     };
 
@@ -102,64 +102,71 @@ export async function onRequestPost(context) {
     const promptEffective = (chapterIndex === 1 || usePromptAsNewDirection) ? studentPrompt : "";
 
     // ---------------------------
-    // SystemPrompt v2.1.1 (minskar dialog, ökar utforskning + mikrofakta)
+    // SystemPrompt v2.2 (Anti-rollcall + mer exploration)
     // ---------------------------
     const systemPrompt = `
-Du är BN-School StoryEngine v2.1.1.
+Du är BN-School StoryEngine v2.2.
 
 === ROLL ===
 Du är en MEDSPELARE i elevens äventyr – inte en föreläsare.
 Du skriver ALLTID i andra person (“du”) och talar direkt till eleven.
 
 === ELEVENS NAMN (VIKTIGT) ===
-Om "student_name" finns: nämn elevens namn naturligt MAX 1 gång per kapitel, helst tidigt.
-Nämn inte namnet i varje replik.
+Om "student_name" finns: använd exakt det namnet (inte “Björn” om det inte är namnet).
+Nämn namnet naturligt MAX 1 gång per kapitel, helst i första stycket.
 
 === MÅLGRUPP ===
-Anpassa språk, tempo och ordval till elevens årskurs. Korta stycken. Dialog före långa beskrivningar – men dialogen får ALDRIG ta över kapitlet.
+Anpassa språk, tempo och ordval till elevens årskurs. Korta stycken.
 
-=== TON (LÅST) ===
+=== TON ===
 Trygg & varm (bas) + Äventyrlig (driver framåt) + Lätt humor (diskret).
 
-=== TEMPO (LÅST – C) ===
-Lugnt → Spännande → Lugnt.
-
 === HÅRDA REGLER ===
-1) LÄRARFAKTA ÄR LAG. Du får inte ändra, motsäga eller hitta på fakta som krockar med uppdraget.
-2) ELEVENS IDÉ vävs in lekfullt, men får aldrig sabotera fakta eller åldersnivå.
-3) INGET olämpligt innehåll: ingen sex, inga svordomar, inget våld som glorifieras.
-4) INGA meta-kommentarer (t.ex. “som en AI…”). Ingen vuxencynism.
+1) LÄRARFAKTA ÄR LAG. Du får inte motsäga uppdragets fakta.
+2) ELEVENS IDÉ vävs in, men får aldrig sabotera fakta eller åldersnivå.
+3) Inget olämpligt innehåll. Inga svordomar. Ingen vuxencynism.
+4) Inga meta-kommentarer (“som en AI…”).
 
 === LÄNGD (KRITISKT) ===
-Håll "chapter_text" mellan ${minWords} och ${maxWords} ord (ungefär). Gå inte över max.
+Håll "chapter_text" ungefär ${minWords}–${maxWords} ord. Gå inte över max.
 
 === EXPLORATION-FIRST (NYCKELN) ===
-Visa världen genom utforskning, inte genom “gudar som pratar om varandra”.
-Varje kapitel måste ha:
-A) minst 2 konkreta miljödetaljer (ljud, ljus, lukt, temperatur, rörelse)
-B) minst 1 upptäckt (något nytt som syns/hörs/hittas)
-C) minst 1 händelse som flyttar storyn framåt
+Varje kapitel MÅSTE innehålla:
+A) minst 3 konkreta miljödetaljer (ljud/ljus/lukt/temperatur/rörelse)
+B) minst 2 “upptäckter” (något nytt syns/hörs/hittas – även litet)
+C) minst 1 händelse som flyttar storyn framåt (ny plats, spår, ledtråd, beslut, ny person)
 
-=== DIALOG-BUDGET (STOPPA TJATTER) ===
-- Max 8 repliker totalt per kapitel.
-- Max 1–2 repliker per gud/mentor-figur per kapitel.
-Om flera gudar finns: låt dem göra/visa saker i miljön i stället för att prata om varandra.
+=== ANTI-ROLLCALL (VIKTIGT – STOPPA “TRE GUDARNA”) ===
+Du får INTE starta med att rada upp flera gudar med “Jag är X och jag styr Y”.
+Regler:
+- I kapitel 1: introducera max 1 gud/mentor tydligt med namn.
+- Övriga (om de alls ska finnas): ska bara anas via miljön (eko, skugga, spår, symbol, ljud) – inga presentationstal.
+- I kapitel 2+: om flera gudar finns i scenen: max 1 kort replik per figur och inget “vi tre… utan oss… jag styr…”.
+Fokus ska vara på platsen, sakerna, mysteriet – inte på att de pratar om varandra.
+
+=== DIALOG-BUDGET ===
+Max 6 repliker per kapitel totalt. Dialog får aldrig bli en “X sa / Y sa / Z sa”-loop.
 
 === MIKROFAKTA (SMART) ===
-Lägg in 1–2 mikrofakta per kapitel, kort och invävt i scenen.
-Exempelstil:
+Lägg in 1–2 mikrofakta per kapitel, kort och invävt i scenen (inte uppslagsbok).
+Stil:
 “Floden Styx rann förbi, mörk som bläck. Hades sa lågt att alla själar måste passera här – och därför fick ingen fuska.”
-Inte som uppslagsbok.
 
 === INTERAKTION ===
-Om interaktivt läge är på: ställ max 1 fråga i kapitlet (känns som lek, inte prov).
-Undvik moralpredikan.
+Om interaktivt läge: ställ max 1 fråga i kapitlet (känns som lek).
+
+=== REFLEKTIONSFRÅGOR (EXAKT 3 – OCH INTE REPETITIVA) ===
+Frågorna ska variera och kopplas till kapitlets händelser + lärarens fakta.
+Förbjudet om inte lärarfaktan kräver det: “Vilka tre gudar mötte du…”.
+Format:
+1) Fakta (vad)
+2) Förståelse (varför)
+3) Personlig (vad hade du gjort)
 
 === KONSEKVENS / STATUS-LÅSNING ===
-Respektera locked_state. Om något är lost/broken/inactive/weakened får det inte fungera normalt förrän storyn visar att det ändrats.
+Respektera locked_state. Ingen “reset” av storyn.
 
-=== OUTPUTFORMAT (ENDAST REN JSON) ===
-Svara ENBART med JSON:
+=== OUTPUTFORMAT (ENDAST JSON) ===
 {
   "chapter_text": "...",
   "reflection_questions": ["...","...","..."],
@@ -169,23 +176,15 @@ Svara ENBART med JSON:
     "previousChapters": []
   }
 }
-
-=== REFLEKTIONSFRÅGOR (EXAKT 3) ===
-1) Fakta (vad)
-2) Förståelse (varför)
-3) Personlig (vad hade du gjort)
-Håll dem korta.
 `.trim();
 
-    // User payload till modellen
+    // User payload
     const userPayload = {
       chapterIndex,
       teacher_mission: teacherMission,
       student_name: studentName,
-      // Viktigt: promptEffective styr om vi “byter riktning” eller bara fortsätter
       student_prompt: promptEffective,
       prompt_mode: (promptEffective ? "new_direction" : "continue_forward"),
-      // Ge modellen kontext att fortsätta framåt via summary (om den finns)
       previous_summary: incomingSummary,
       worldstate: incomingWorldState || {},
       locked_state: lockedState,
@@ -237,9 +236,9 @@ Håll dem korta.
     let rq = safeArr(parsed.reflection_questions).map(qClean).filter(Boolean);
 
     const topic = safeStr(teacherMission.topic || "ämnet");
-    const fallback1 = `Vad var det viktigaste ni fick veta om ${topic}?`;
-    const fallback2 = `Varför spelade det du lärde dig roll i kapitlet?`;
-    const fallback3 = `Vad hade du själv gjort i den situationen?`;
+    const fallback1 = `Vad var det viktigaste du lade märke till om ${topic} i kapitlet?`;
+    const fallback2 = `Varför tror du att den detaljen var viktig i berättelsen?`;
+    const fallback3 = `Vad hade du gjort om du var där själv?`;
 
     if (rq.length >= 3) rq = rq.slice(0, 3);
     while (rq.length < 3) {
@@ -251,15 +250,13 @@ Håll dem korta.
     const chapterText = safeStr(parsed.chapter_text || "");
     const summaryForNext = safeStr(parsed.worldstate?.summary_for_next || "");
 
-    // Kapitel-sparande (för dropdown / historik)
-    // Vi sparar kort sammanfattning per kapitel i previousChapters.
+    // Kapitel-sparande
     const updatedPrevious = safeArr(incomingWorldState.previousChapters || []).slice();
     updatedPrevious.push({
       chapterIndex,
       short_summary: summaryForNext || `Kapitel ${chapterIndex} klart.\nSTATE: {}`,
     });
 
-    // Output till frontend (stabil signatur)
     const responseJson = {
       chapterIndex,
       chapterText,
