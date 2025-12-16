@@ -1,7 +1,12 @@
 // functions/api/bnschool_generate.js
-// BN-Skola v1.4 – StoryEngine backend (Cloudflare Pages Functions)
-// Fokus: v1-driv (framåtrörelse + upptäckter), mindre snack, bättre minne mellan kapitel
-// Stabil respons-signatur: { chapterIndex, chapterText, reflectionQuestions, worldstate }
+// BN-Skola v1.4 – StoryEngine backend (Pages Functions)
+//
+// Mål med v1.4:
+// - V1-drivet tillbaka (problem -> handling -> nästa steg)
+// - Elevens prompt blir ett "STORY GOAL" som modellen MÅSTE följa (Atlantis ignoreras inte)
+// - Mindre rundsnack, mer utforskning med syfte
+// - Reflektionsfrågor måste vara svarbara från texten (backend gör enkel sanity-fix)
+// - Robust worldstate: sparar story_goal + last_student_prompt + korta summaries
 
 export async function onRequestPost(context) {
   const { request, env } = context;
@@ -9,170 +14,194 @@ export async function onRequestPost(context) {
   const corsHeaders = {
     "Content-Type": "application/json; charset=utf-8",
     "Access-Control-Allow-Origin": "*",
-    "Access-Control-Allow-Methods": "POST, OPTIONS",
-    "Access-Control-Allow-Headers": "Content-Type, Authorization",
   };
 
   try {
-    const body = await request.json().catch(() => ({}));
+    const body = await request.json();
 
-    const teacherMission = body.teacher_mission || null;
-    const studentPromptRaw = typeof body.student_prompt === "string" ? body.student_prompt : "";
+    const teacherMission = body.teacher_mission;
+    const studentPrompt = typeof body.student_prompt === "string" ? body.student_prompt.trim() : "";
     const studentName = typeof body.student_name === "string" ? body.student_name.trim() : "";
     const incomingWorldState = body.worldstate && typeof body.worldstate === "object" ? body.worldstate : {};
-    const useNewDirection = body.use_new_direction === true; // frontend checkbox
 
     if (!teacherMission || !teacherMission.topic) {
-      return new Response(JSON.stringify({ error: "teacher_mission.topic saknas" }), {
-        status: 400,
-        headers: corsHeaders,
-      });
+      return new Response(JSON.stringify({ error: "teacher_mission.topic saknas" }), { status: 400, headers: corsHeaders });
     }
 
     const openaiKey = env.OPENAI_API_KEY;
     if (!openaiKey) {
-      return new Response(JSON.stringify({ error: "OPENAI_API_KEY saknas i miljövariablerna" }), {
-        status: 500,
-        headers: corsHeaders,
-      });
+      return new Response(JSON.stringify({ error: "OPENAI_API_KEY saknas i miljövariablerna" }), { status: 500, headers: corsHeaders });
     }
 
-    // ---------------------------
+    // chapterIndex (nästa)
+    const prevIndex = typeof incomingWorldState.chapterIndex === "number" ? incomingWorldState.chapterIndex : 0;
+    const chapterIndex = prevIndex + 1;
+
     // Helpers
-    // ---------------------------
     const safeStr = (v) => (typeof v === "string" ? v : "");
     const safeArr = (v) => (Array.isArray(v) ? v : []);
     const cleanOneLine = (s) => safeStr(s).trim().replace(/\s+/g, " ");
     const qClean = (s) => cleanOneLine(s);
 
-    // ---------------------------
-    // Kapitelindex
-    // ---------------------------
-    const prevIndex = typeof incomingWorldState.chapterIndex === "number" ? incomingWorldState.chapterIndex : 0;
-    const chapterIndex = prevIndex + 1;
-
-    // ---------------------------
     // Length ranges (ord)
-    // ---------------------------
     const grade = parseInt(teacherMission.grade_level, 10) || 4;
-    const len = safeStr(teacherMission.chapter_length || "normal").toLowerCase(); // "kort" | "normal" | "lang"
+    const len = safeStr(teacherMission.chapter_length || "normal"); // "kort" | "normal" | "lang"
 
     const lengthTable = {
       2: { kort: [70, 95], normal: [95, 130], lang: [140, 190] },
-      3: { kort: [90, 125], normal: [125, 170], lang: [180, 240] },
-      4: { kort: [120, 170], normal: [170, 230], lang: [240, 340] },
-      5: { kort: [140, 200], normal: [200, 270], lang: [280, 380] },
-      6: { kort: [160, 230], normal: [230, 320], lang: [330, 450] },
-      7: { kort: [180, 260], normal: [260, 360], lang: [370, 520] },
-      8: { kort: [200, 290], normal: [290, 420], lang: [430, 600] },
-      9: { kort: [220, 320], normal: [320, 480], lang: [490, 680] },
+      3: { kort: [90, 125], normal: [125, 175], lang: [185, 245] },
+      4: { kort: [120, 165], normal: [165, 230], lang: [240, 340] },
+      5: { kort: [140, 195], normal: [195, 270], lang: [280, 380] },
+      6: { kort: [160, 220], normal: [220, 310], lang: [320, 430] },
+      7: { kort: [180, 250], normal: [250, 350], lang: [360, 480] },
+      8: { kort: [200, 280], normal: [280, 390], lang: [400, 540] },
+      9: { kort: [220, 310], normal: [310, 440], lang: [450, 620] },
     };
 
     const ranges = lengthTable[grade] || lengthTable[4];
     const [minWords, maxWords] = ranges[len] || ranges["normal"];
 
     // ---------------------------
-    // “Minne”: previous summaries (senaste 3)
+    // Locked state parsing (STATE: {...} i summary)
     // ---------------------------
-    const incomingPrev = safeArr(incomingWorldState.previousChapters || []);
-    const last3 = incomingPrev.slice(-3).map((x) => ({
-      chapterIndex: typeof x?.chapterIndex === "number" ? x.chapterIndex : null,
-      short_summary: safeStr(x?.short_summary || ""),
-    }));
-
-    const incomingSummary = safeStr(incomingWorldState.summary_for_next || "");
-    const memoryBlock = {
-      summary_for_next: incomingSummary,
-      last_chapters: last3,
+    const parseStateFromText = (text) => {
+      const t = safeStr(text);
+      if (!t) return {};
+      const lines = t.split(/\r?\n/).map((x) => x.trim());
+      const stateLine = lines.find((l) => l.startsWith("STATE:"));
+      if (!stateLine) return {};
+      const jsonPart = stateLine.replace(/^STATE:\s*/, "").trim();
+      if (!jsonPart) return {};
+      try {
+        const obj = JSON.parse(jsonPart);
+        return obj && typeof obj === "object" && !Array.isArray(obj) ? obj : {};
+      } catch {
+        return {};
+      }
     };
 
-    // ---------------------------
-    // Prompt-beteende (BN-Kids-style):
-    // - Kap 1: prompt används alltid (om finns)
-    // - Kap 2+: prompt används bara om "use_new_direction" är true
-    // ---------------------------
-    const studentPrompt = cleanOneLine(studentPromptRaw);
-    const effectivePrompt =
-      chapterIndex === 1 ? studentPrompt : (useNewDirection ? studentPrompt : "");
+    const mergeState = (a, b) => {
+      const out = {};
+      if (a && typeof a === "object") for (const [k, v] of Object.entries(a)) out[k] = v;
+      if (b && typeof b === "object") for (const [k, v] of Object.entries(b)) out[k] = v;
+      return out;
+    };
+
+    const incomingSummary = safeStr(incomingWorldState.summary_for_next || "");
+    const incomingPrev = safeArr(incomingWorldState.previousChapters || []);
+    const lastPrev = incomingPrev.length ? incomingPrev[incomingPrev.length - 1] : null;
+    const lastPrevSummary = lastPrev ? safeStr(lastPrev.short_summary || "") : "";
+
+    const stateFromSummary = parseStateFromText(incomingSummary);
+    const stateFromLastPrev = parseStateFromText(lastPrevSummary);
+    const lockedState = mergeState(stateFromSummary, stateFromLastPrev);
 
     // ---------------------------
-    // Systemprompt – v1-driv (framåt + rundtur + upptäckter, mindre gubbsnack)
+    // STORY GOAL (nyckeln till att prompten INTE ignoreras)
+    // ---------------------------
+    // Regler:
+    // - Kapitel 1: studentPrompt = story_goal (om finns). Annars mål från teacherMission.
+    // - Kapitel 2+: Om studentPrompt finns => uppdatera story_goal till den (direktiv).
+    //              Annars behåll worldstate.story_goal.
+    const prevGoal = safeStr(incomingWorldState.story_goal || "");
+    const defaultGoal = `Gör en spännande historia som lär ut om: ${safeStr(teacherMission.topic)}`;
+    const storyGoal =
+      chapterIndex === 1
+        ? (studentPrompt || prevGoal || defaultGoal)
+        : (studentPrompt || prevGoal || defaultGoal);
+
+    const lastStudentPrompt = studentPrompt || safeStr(incomingWorldState.last_student_prompt || "");
+
+    // ---------------------------
+    // SystemPrompt – V1-DRIV (hårt)
     // ---------------------------
     const systemPrompt = `
-Du är BN-School StoryEngine v1.4.
+Du är BN-School StoryEngine v1-DRIVE.
 
-=== ROLL ===
-Du skriver ett kapitel i andra person ("du"). Du är en medspelare i elevens äventyr, inte en föreläsare.
+=== KÄRNIDÉ ===
+Du skapar ett äventyr som känns som "nu händer det", inte som en rundtur.
+Varje kapitel måste ha:
+1) PROBLEM (något konkret står på spel eller är oklart)
+2) HANDLING (du/ni gör något direkt)
+3) RESULTAT/LEDTRÅD (något nytt som tvingar nästa steg)
 
-=== KÄRNMÅL (V1-DRIV) ===
-Varje kapitel måste KÄNNAS som att det händer något nytt.
-Du ska prioritera: rörelse, upptäckter, miljö, små spår/ledtrådar, och en tydlig "nästa steg"-krok.
+=== POV ===
+Skriv alltid i andra person ("du") och prata till eleven.
+Om elevens namn finns: nämn det naturligt 1–2 gånger max.
 
-=== LÄRARFAKTA ===
-Lärarens uppdrag och fakta får inte motsägas. Du får väva in 1–2 extra mikrofakta om det passar och är säkert.
+=== STORY GOAL (MÅSTE FÖLJAS) ===
+Du får ett "story_goal". Det är elevens vilja eller riktning.
+Du MÅSTE:
+- Väva in story_goal i kapitlets handling
+- Göra det till ett konkret nästa steg (inte ignorera det)
+- Om story_goal är omöjligt just NU: ge en tydlig "väg dit" (ledning/spår/portal/krav) samma kapitel.
 
-=== MINDRE DIALOG, MER UTFORSKNING ===
-- Max 6 repliker totalt per kapitel.
-- Inga dialog-loopar där karaktärer pratar om varandra ("Zeus sa / Poseidon sa / Hades sa...").
-- Visa istället världen: saker ni SER, HÖR, KÄNNER, och PLATSER ni rör er genom.
+Exempel:
+Goal: "Ta mig till Atlantis"
+✅ Poseidon visar en symbol/karta/port som kräver en nyckel – och ni tar första steget mot den.
 
-=== "RUND-TUR"-STIL (det som funkade bäst) ===
-När eleven vill följa med en figur (t.ex. Poseidon/Hades) ska kapitlet bli en rundtur:
-- Ni rör er genom MINST 2 platser eller "stationer" (ex. port → sal → flod → tunnel).
-- Varje station har 2 konkreta detaljer + 1 liten händelse (något rör sig, en ledtråd, ett val, en reaktion).
-- Låt figuren guida genom handling, inte genom föreläsning.
+❌ Inte okej:
+Ignorera Atlantis och fortsätt med allmän tugg.
 
-=== INGEN "VÅGAR DU?"-TON ===
-Ställ aldrig frågor som skammar eller utmanar ("vågar du?").
-Om du ställer en fråga, gör den nyfiken och öppen: "Vad väljer du?" / "Vad vill du undersöka?"
+=== FAKTA (LÄRARUPPDRAG) ===
+Lärarfakta är lag. Du får lägga 1–2 mikrofakta per kapitel, men de ska sitta i handlingen.
+Inga föreläsningar.
 
-=== ELEVENS NAMN ===
-Om student_name finns: nämn namnet naturligt 1–2 gånger (inte i varje mening).
+=== REALISM I FANTASY ===
+Fantasy är okej, men undvik fåniga/ologiska detaljer.
+- Inga "mullrar när en sköldpadda simmar" om det inte finns tydlig fantasy-orsak som gör det coolt.
+- Inga random föremål som "bara dyker upp" utan motivation. Om något hittas: visa varför det är där.
 
-=== LÄNGD (HÅRD) ===
-Håll chapter_text inom ${minWords}–${maxWords} ord. Hellre lite kort än för långt.
+=== DIALOG-BUDGET (STOPPA TJAT) ===
+Max 6 repliker per kapitel.
+Max 1 replik per gud/mentor per kapitel.
+Prioritera handling, miljö och framåtdrift.
 
-=== KAPITELSTRUKTUR (MÅSTE) ===
-1) Start: direkt in i en scen (1–2 meningar).
-2) Utforskning: 2 stationer/plats-skiften med konkreta detaljer.
-3) Framåtdrift: en liten twist/ledtråd/händelse som ändrar läget.
-4) Avslut: en tydlig "nästa steg"-krok (utan att fråga "vågar du").
+=== UTFORSKNING MED SYFTE ===
+Minst 2 konkreta miljödetaljer (ljud/ljus/lukt/temperatur/rörelse),
+men de måste driva scenen framåt (t.ex. avslöjar en ledtråd, varnar, visar väg).
 
-=== REFLEKTIONSFRÅGOR (EXAKT 3) ===
-1) Fakta: enkel vad-fråga från uppdraget
-2) Förståelse: enkel varför-fråga kopplad till händelsen
-3) Personlig: "Vad hade du valt/gjort?" (inga rätt/fel)
+=== LÄNGD (HÅRT) ===
+Håll dig mellan ${minWords} och ${maxWords} ord i chapter_text.
+Hellre lite kort än för långt.
 
-=== OUTPUTFORMAT ===
-Svara ENDAST med ren JSON:
+=== REFLEKTIONSFRÅGOR (VIKTIGT) ===
+Exakt 3 frågor.
+De måste vara svarbara från chapter_text.
+Ställ inte frågor om saker som inte uttryckligen nämnts i texten.
+
+Format:
+1) Fakta (Vad såg/hette/var?)
+2) Förståelse (Varför hände/varför gjorde ni?)
+3) Personlig (Vad hade du gjort?)
+
+=== KONSEKVENS / LOCKED STATE ===
+Om locked_state säger att något är trasigt/förlorat/inaktivt: använd det inte som fungerande.
+
+=== OUTPUT (ENBART JSON) ===
+Svara med exakt:
 {
   "chapter_text": "...",
   "reflection_questions": ["...","...","..."],
   "worldstate": {
-    "summary_for_next": "2–4 meningar + en sista rad 'STATE: {...}'",
-    "state_tags": ["valfria korta taggar"]
+    "chapterIndex": ${chapterIndex},
+    "story_goal": "...",
+    "last_student_prompt": "...",
+    "summary_for_next": "2–4 meningar\\nSTATE: {...}",
+    "previousChapters": []
   }
 }
-
-VIKTIGT: summary_for_next MÅSTE sluta med en egen rad:
-STATE: {}
-Eller STATE: {"nyckel":"värde"} om något behöver låsas.
 `.trim();
 
-    // ---------------------------
     // User payload till modellen
-    // ---------------------------
     const userPayload = {
       chapterIndex,
       teacher_mission: teacherMission,
       student_name: studentName,
-      // Bara effektiv prompt (så vi slipper att den “fastnar” på prompt 1 när du inte vill)
-      student_prompt: effectivePrompt,
-      use_new_direction: useNewDirection,
-      // "minne" från tidigare kapitel
-      memory: memoryBlock,
-      // worldstate som frontend skickar (för kompat)
+      student_prompt: studentPrompt,
+      story_goal: storyGoal,
       worldstate: incomingWorldState || {},
+      locked_state: lockedState,
     };
 
     const openaiResponse = await fetch("https://api.openai.com/v1/chat/completions", {
@@ -183,8 +212,8 @@ Eller STATE: {"nyckel":"värde"} om något behöver låsas.
       },
       body: JSON.stringify({
         model: "gpt-4.1",
-        temperature: 0.8,
-        max_tokens: 1200,
+        temperature: 0.78,
+        max_tokens: 1400,
         response_format: { type: "json_object" },
         messages: [
           { role: "system", content: systemPrompt },
@@ -193,7 +222,8 @@ Eller STATE: {"nyckel":"värde"} om något behöver låsas.
       }),
     });
 
-    const openaiJson = await openaiResponse.json().catch(() => ({}));
+    const openaiJson = await openaiResponse.json();
+
     if (!openaiResponse.ok) {
       console.error("OpenAI-fel:", openaiResponse.status, openaiJson);
       return new Response(JSON.stringify({ error: "OpenAI API fel", details: openaiJson }), {
@@ -202,12 +232,9 @@ Eller STATE: {"nyckel":"värde"} om något behöver låsas.
       });
     }
 
-    const rawContent = openaiJson?.choices?.[0]?.message?.content;
+    let rawContent = openaiJson?.choices?.[0]?.message?.content;
     if (!rawContent) {
-      return new Response(JSON.stringify({ error: "Tomt svar från OpenAI" }), {
-        status: 500,
-        headers: corsHeaders,
-      });
+      return new Response(JSON.stringify({ error: "Tomt svar från OpenAI" }), { status: 500, headers: corsHeaders });
     }
 
     let parsed;
@@ -218,18 +245,19 @@ Eller STATE: {"nyckel":"värde"} om något behöver låsas.
       parsed = {
         chapter_text: rawContent,
         reflection_questions: [],
-        worldstate: { summary_for_next: "STATE: {}" },
+        worldstate: { chapterIndex, story_goal: storyGoal, last_student_prompt: lastStudentPrompt, summary_for_next: "STATE: {}", previousChapters: [] },
       };
     }
 
-    // Enforce: EXAKT 3 reflektionsfrågor
+    const chapterText = safeStr(parsed.chapter_text || "");
     let rq = safeArr(parsed.reflection_questions).map(qClean).filter(Boolean);
 
-    const topic = safeStr(teacherMission.topic || "ämnet");
-    const fallback1 = `Vilken sak lärde du dig om ${topic} i kapitlet?`;
-    const fallback2 = `Varför tror du att det som hände hängde ihop med ${topic}?`;
-    const fallback3 = `Vad hade du själv valt att göra härnäst?`;
+    // Fallbackfrågor som alltid går att svara på från texten (vi gör dem generiska men relevanta)
+    const fallback1 = "Vilken plats eller sak upptäckte du i kapitlet?";
+    const fallback2 = "Varför var den upptäckten viktig för nästa steg?";
+    const fallback3 = "Vad hade du valt att göra härnäst, och varför?";
 
+    // Enforce: exakt 3 frågor
     if (rq.length >= 3) rq = rq.slice(0, 3);
     while (rq.length < 3) {
       if (rq.length === 0) rq.push(fallback1);
@@ -237,18 +265,36 @@ Eller STATE: {"nyckel":"värde"} om något behöver låsas.
       else rq.push(fallback3);
     }
 
-    const chapterText = safeStr(parsed.chapter_text || "").trim();
-    const summaryForNext = safeStr(parsed.worldstate?.summary_for_next || "").trim() || "STATE: {}";
+    // --- Sanity-fix: frågor måste matcha texten ---
+    // Enkel heuristik: om fråga nämner ett namn/ord som inte finns i texten -> byt till fallback som går att svara på.
+    const mustExistTerms = ["Zeus", "Poseidon", "Hades", "Atlantis", "Styx"];
+    const textHas = (term) => chapterText.toLowerCase().includes(term.toLowerCase());
+    const questionMentions = (q, term) => q.toLowerCase().includes(term.toLowerCase());
 
-    // Append:a previousChapters så "minnet" verkligen byggs
-    const nextPrevious = safeArr(incomingWorldState.previousChapters || []).slice();
-    // kort sammanfattning: ta första ~200 tecken om modellen inte ger egen “short_summary”
-    const autoShort =
-      summaryForNext.split("\n").filter(Boolean)[0]?.slice(0, 200) || chapterText.slice(0, 200);
-    nextPrevious.push({
-      chapterIndex,
-      short_summary: autoShort,
+    rq = rq.map((q, idx) => {
+      for (const term of mustExistTerms) {
+        if (questionMentions(q, term) && !textHas(term)) {
+          // Byt till en fråga som säkert går att svara på från texten
+          if (idx === 0) return fallback1;
+          if (idx === 1) return fallback2;
+          return fallback3;
+        }
+      }
+      return q;
     });
+
+    const summaryForNext = safeStr(parsed.worldstate?.summary_for_next || "STATE: {}");
+
+    // previousChapters: behåll inkommande + lägg till en kort summary-rad (om finns)
+    const prevChapters = safeArr(incomingWorldState.previousChapters || []).slice(0, 50);
+
+    const shortSummary = summaryForNext.split("\n")[0]?.trim() || "";
+    if (shortSummary) {
+      prevChapters.push({
+        chapterIndex,
+        short_summary: shortSummary.length > 240 ? shortSummary.slice(0, 240) + "…" : shortSummary,
+      });
+    }
 
     // Output till frontend (stabil signatur)
     const responseJson = {
@@ -257,10 +303,10 @@ Eller STATE: {"nyckel":"värde"} om något behöver låsas.
       reflectionQuestions: rq,
       worldstate: {
         chapterIndex,
+        story_goal: safeStr(parsed.worldstate?.story_goal || storyGoal),
+        last_student_prompt: safeStr(parsed.worldstate?.last_student_prompt || lastStudentPrompt),
         summary_for_next: summaryForNext,
-        previousChapters: nextPrevious,
-        // behåll ev. andra worldstate-nycklar (framtidssäkert)
-        ...(incomingWorldState && typeof incomingWorldState === "object" ? incomingWorldState : {}),
+        previousChapters: prevChapters,
       },
     };
 
