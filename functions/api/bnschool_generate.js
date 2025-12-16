@@ -1,7 +1,7 @@
 // functions/api/bnschool_generate.js
-// BN-Skola v1.4 – StoryEngine backend (Cloudflare Pages Functions)
-// Fokus: V1-driv + prompt-lydnad + Atlantis-payoff direkt + stopp för "lukt-tjat" + reflektionsfrågor som går att besvara
-// Stabil API-signatur: { chapterIndex, chapterText, reflectionQuestions, worldstate }
+// BN-Skola v1.6 – FIX: hard direction fungerar alltid (via use_as_new_direction ELLER prompt_mode)
+// + soft prompt ska fortfarande påverka riktning (utan att tappa tråd)
+// + reflektionsfrågor alltid svarbara.
 
 export async function onRequestPost(context) {
   const { request, env } = context;
@@ -9,37 +9,38 @@ export async function onRequestPost(context) {
   const corsHeaders = {
     "Content-Type": "application/json; charset=utf-8",
     "Access-Control-Allow-Origin": "*",
+    "Access-Control-Allow-Methods": "POST, OPTIONS",
+    "Access-Control-Allow-Headers": "Content-Type, Authorization",
   };
 
   try {
     const body = await request.json();
 
     const teacherMission = body.teacher_mission;
-    const rawStudentPrompt = typeof body.student_prompt === "string" ? body.student_prompt : "";
+    const studentPrompt = typeof body.student_prompt === "string" ? body.student_prompt.trim() : "";
     const studentName = typeof body.student_name === "string" ? body.student_name.trim() : "";
     const incomingWorldState = body.worldstate && typeof body.worldstate === "object" ? body.worldstate : {};
 
-    // Checkbox-stöd (BN-Kids-liknande beteende):
-    // - Om false: prompt ignoreras (förutom vid kapitel 1) och vi fortsätter storyn framåt.
-    // - Om true: prompt används som ny riktning från och med detta kapitel.
-    const useNewDirection =
-      body.use_new_direction === true ||
-      body.apply_new_prompt === true ||
-      body.useAsNewDirection === true;
+    // ✅ Robust "hard direction" detection:
+    // 1) explicit flags from frontend (preferred)
+    // 2) prompt_mode === "direction" (legacy/alternate)
+    const promptMode = typeof body.prompt_mode === "string" ? body.prompt_mode : "";
+    const useAsNewDirection =
+      !!body.use_as_new_direction ||
+      !!body.useAsNewDirection ||
+      !!body.new_direction ||
+      promptMode === "direction";
+
+    // Soft influence = prompt finns men rutan inte är hard
+    const hasSoftPrompt = !!studentPrompt && !useAsNewDirection;
 
     if (!teacherMission || !teacherMission.topic) {
-      return new Response(JSON.stringify({ error: "teacher_mission.topic saknas" }), {
-        status: 400,
-        headers: corsHeaders,
-      });
+      return new Response(JSON.stringify({ error: "teacher_mission.topic saknas" }), { status: 400, headers: corsHeaders });
     }
 
     const openaiKey = env.OPENAI_API_KEY;
     if (!openaiKey) {
-      return new Response(JSON.stringify({ error: "OPENAI_API_KEY saknas i miljövariablerna" }), {
-        status: 500,
-        headers: corsHeaders,
-      });
+      return new Response(JSON.stringify({ error: "OPENAI_API_KEY saknas i miljövariablerna" }), { status: 500, headers: corsHeaders });
     }
 
     // chapterIndex (nästa)
@@ -50,14 +51,11 @@ export async function onRequestPost(context) {
     const safeStr = (v) => (typeof v === "string" ? v : "");
     const safeArr = (v) => (Array.isArray(v) ? v : []);
     const cleanOneLine = (s) => safeStr(s).trim().replace(/\s+/g, " ");
-    const qClean = (s) => cleanOneLine(s);
-
-    // Prompt-beteende: alltid i kap 1, annars endast om checkboxen är i.
-    const studentPrompt = (chapterIndex === 1 || useNewDirection) ? rawStudentPrompt.trim() : "";
+    const qClean = (s) => cleanOneLine(s).replace(/[“”]/g, '"');
 
     // Length ranges (ord)
     const grade = parseInt(teacherMission.grade_level, 10) || 4;
-    const len = safeStr(teacherMission.chapter_length || "normal"); // "kort" | "normal" | "lang"
+    const len = safeStr(teacherMission.chapter_length || "normal").toLowerCase();
 
     const lengthTable = {
       2: { kort: [70, 90], normal: [90, 120], lang: [130, 170] },
@@ -74,7 +72,7 @@ export async function onRequestPost(context) {
     const [minWords, maxWords] = ranges[len] || ranges["normal"];
 
     // ---------------------------
-    // STATE parsing (låst status)
+    // STATE parsing (status-lås)
     // ---------------------------
     const parseStateFromText = (text) => {
       const t = safeStr(text);
@@ -109,80 +107,56 @@ export async function onRequestPost(context) {
     const lockedState = mergeState(stateFromSummary, stateFromLastPrev);
 
     // ---------------------------
-    // SystemPrompt v1.4 (V1-driv + prompt-lydnad + Atlantis payoff + stopp för doft-tjat)
+    // SystemPrompt – v1-driv
     // ---------------------------
     const systemPrompt = `
-Du är BN-School StoryEngine v1.4.
+Du är BN-School StoryEngine v1-DRIVE.
 
-=== ROLL ===
-Du är en MEDSPELARE i elevens äventyr – inte en föreläsare.
-Du skriver ALLTID i andra person (“du”) och talar direkt till eleven.
+ROLL
+- Du är MEDSPELARE i elevens äventyr – inte en föreläsare.
+- Du skriver ALLTID i andra person (“du”) och talar direkt till eleven.
 
-=== MÅLGRUPP ===
-Anpassa språk, tempo och ordval till elevens årskurs. Korta stycken. Driv framåt. Inga upprepningar.
+PRIORITET (VIKTIGAST ÖVERST)
+1) LÄRARUPPDRAGETS fakta & mål (teacher_mission) är lag.
+2) Elevens prompt styr riktning.
+   - HARD: du måste följa elevens önskan som huvudspår DIREKT i kapitlet.
+   - SOFT: elevens prompt ska ändå påverka nästa scen/val tydligt (du får inte ignorera den).
+3) Kontinuitet: följ worldstate + locked_state. Tappa inte bort vilka som är med.
 
-=== TON (LÅST) ===
-Trygg & varm (bas) + Äventyrlig (driver) + lätt humor (max 1 liten blinkning/kapitel).
+DRIV (MÅSTE FINNAS VARJE KAPITEL)
+- Krok inom 1–2 meningar (något händer NU)
+- Tydligt mål
+- Hinder
+- Framsteg i slutet (ni kommer närmare målet)
 
-=== V1-DRIV (KRITISKT) ===
-Varje kapitel måste:
-1) starta snabbt (inom 2 meningar händer något / ni rör er)
-2) innehålla en tydlig händelse som flyttar storyn framåt (ny plats, upptäckt, spår, hot, beslut)
-3) sluta med en naturlig krok – men inte “du måste klara en ny sak” om ni just redan vunnit en sak.
+UTFORSKNING
+- Visa världen genom handling.
+- Max 1 kort sinnesrad per kapitel. Undvik “det luktar…” som standard.
 
-=== PROMPT-PRIORITET (EXTREMT VIKTIGT) ===
-Du får:
-- teacher_mission (fakta/uppdrag)
-- student_prompt (elevens riktning)
-- worldstate + locked_state (kontinuitet)
+DIALOG-BUDGET
+- Max 6 repliker per kapitel totalt.
 
-Regel:
-A) teacher_mission styr fakta/ram.
-B) student_prompt styr riktning/val i storyn.
-Om student_prompt säger “ta mig till Atlantis” → då ska du föra storyn mot Atlantis NU, inte ignorera det.
+INGA PÅTVINGADE “MÅSTE KLARA”
+- Skriv inte “endast den som…” eller “du måste klara X”.
+- Skapa spänning via hinder/val, inte lås.
 
-=== ATLANTIS PAYOFF-REGEL (NY) ===
-Om locked_state.atlantisKey === "owned" och locked_state.location !== "atlantis":
-- Nästa kapitel måste börja med att nyckeln används och att ni kommer IN i Atlantis inom 3–5 meningar.
-- Inga “men först måste du…” efter att nyckeln är vunnen.
+MIKROFAKTA (1 st / kapitel max)
+- Max 1 mening, vävd i handlingen.
 
-Om ni i kapitlet hittar/vrider om nyckeln:
-- Sätt STATE: {"atlantisKey":"owned"} i summary_for_next (om den ännu inte finns)
-När ni går igenom porten och faktiskt är inne:
-- Sätt STATE: {"location":"atlantis","atlantisKey":"used"}
+REFLEKTIONSFRÅGOR (EXAKT 3)
+- Måste vara svarbara utifrån chapter_text.
+1) Fakta (vad hände)
+2) Förståelse (varför)
+3) Personlig (vad hade du gjort)
 
-=== SENSOR-BUDGET (STOPPA 'LUKT'-TJAT) ===
-- Max 1 sensorisk detalj per kapitel (ljud ELLER ljus ELLER känsla av kyla/värme).
-- Skriv INTE om lukt/doft om inte eleven eller uppdraget kräver det.
-- Prioritera synliga saker + handling.
+LÄNGD
+- ${minWords}-${maxWords} ord för chapter_text.
 
-=== DIALOG-BUDGET (STOPPA RUNTSNACK) ===
-- Max 6 repliker totalt per kapitel.
-- Dialog får aldrig bli “X säger / Y säger / X säger” i loop.
-- Låt världen göra jobbet: visa, gör, flytta.
-
-=== MIKROFAKTA (BRA – MEN RÄTT) ===
-Du får lägga in 1 mikro-fakta per kapitel (1 mening), men endast om det hjälper uppdraget och är tydligt kopplat till scenen.
-
-=== KONSEKVENS / STATUS-LÅSNING ===
-locked_state är lag.
-Om något är markerat som tappat/försvagat/icke aktivt → du får inte använda det som helt.
-Status ändras bara om kapitlet visar hur.
-
-=== REFLEKTIONSFRÅGOR (MÅSTE GÅ ATT BESVARA) ===
-Exakt 3 frågor.
-De måste kunna besvaras genom att läsa kapitlet (inte kräva “allmän kunskap” som inte nämns).
-1) Fakta: “Vad såg/hände?”
-2) Förståelse: “Varför hände det / varför gjorde ni X?”
-3) Personlig: “Vad hade du gjort?”
-
-=== LÄNGD (HÅRDT) ===
-Skriv chapter_text inom ${minWords}–${maxWords} ord. Hellre lite kort än för långt.
-
-=== OUTPUTFORMAT (ENBART REN JSON) ===
+OUTPUT
+Svara ENDAST med ren JSON:
 {
-  "chapter_text": "Text",
-  "reflection_questions": ["Q1","Q2","Q3"],
+  "chapter_text": "...",
+  "reflection_questions": ["...","...","..."],
   "worldstate": {
     "chapterIndex": ${chapterIndex},
     "summary_for_next": "2–4 meningar. Sista raden: STATE: {...}",
@@ -191,12 +165,12 @@ Skriv chapter_text inom ${minWords}–${maxWords} ord. Hellre lite kort än för
 }
 `.trim();
 
-    // User payload till modellen
     const userPayload = {
       chapterIndex,
       teacher_mission: teacherMission,
       student_name: studentName,
       student_prompt: studentPrompt,
+      prompt_mode: useAsNewDirection ? "hard_direction" : (hasSoftPrompt ? "soft_influence" : "continue"),
       worldstate: incomingWorldState || {},
       locked_state: lockedState,
     };
@@ -209,8 +183,8 @@ Skriv chapter_text inom ${minWords}–${maxWords} ord. Hellre lite kort än för
       },
       body: JSON.stringify({
         model: "gpt-4.1",
-        temperature: 0.75,
-        max_tokens: 1400,
+        temperature: 0.7,
+        max_tokens: 1200,
         response_format: { type: "json_object" },
         messages: [
           { role: "system", content: systemPrompt },
@@ -223,18 +197,12 @@ Skriv chapter_text inom ${minWords}–${maxWords} ord. Hellre lite kort än för
 
     if (!openaiResponse.ok) {
       console.error("OpenAI-fel:", openaiResponse.status, openaiJson);
-      return new Response(JSON.stringify({ error: "OpenAI API fel", details: openaiJson }), {
-        status: 500,
-        headers: corsHeaders,
-      });
+      return new Response(JSON.stringify({ error: "OpenAI API fel", details: openaiJson }), { status: 500, headers: corsHeaders });
     }
 
     let rawContent = openaiJson?.choices?.[0]?.message?.content;
     if (!rawContent) {
-      return new Response(JSON.stringify({ error: "Tomt svar från OpenAI" }), {
-        status: 500,
-        headers: corsHeaders,
-      });
+      return new Response(JSON.stringify({ error: "Tomt svar från OpenAI" }), { status: 500, headers: corsHeaders });
     }
 
     let parsed;
@@ -249,13 +217,33 @@ Skriv chapter_text inom ${minWords}–${maxWords} ord. Hellre lite kort än för
       };
     }
 
-    // Enforce: EXAKT 3 reflektionsfrågor + rensa
+    let chapterText = safeStr(parsed.chapter_text || "").trim();
+
+    // --- Post-fix: om gudar nämns men deras domäner saknas, lägg minimal rad (för att frågor ska funka) ---
+    const mentionsZeus = /Zeus/.test(chapterText);
+    const mentionsPoseidon = /Poseidon/.test(chapterText);
+    const mentionsHades = /Hades/.test(chapterText);
+
+    const needsZeusDomain = mentionsZeus && !/(styr|råder|härskar).*(himmel|åska|blixt)/i.test(chapterText);
+    const needsPoseidonDomain = mentionsPoseidon && !/(styr|råder|härskar).*(hav|vatten|stormar|vågor)/i.test(chapterText);
+    const needsHadesDomain = mentionsHades && !/(styr|råder|härskar).*(underjord|dödas|riket)/i.test(chapterText);
+
+    const addon = [];
+    if (needsZeusDomain) addon.push("Zeus styr över himlen och blixten.");
+    if (needsPoseidonDomain) addon.push("Poseidon råder över havet och vågorna.");
+    if (needsHadesDomain) addon.push("Hades härskar över underjorden och de dödas rike.");
+
+    if (addon.length) {
+      chapterText = `${chapterText}\n\n${addon.join(" ")}`;
+    }
+
+    // Enforce: EXAKT 3 reflektionsfrågor
     let rq = safeArr(parsed.reflection_questions).map(qClean).filter(Boolean);
 
     const topic = safeStr(teacherMission.topic || "ämnet");
     const fallback1 = `Vad var det viktigaste som hände i kapitlet?`;
-    const fallback2 = `Varför tror du att det hände just då?`;
-    const fallback3 = `Vad hade du själv gjort i den situationen?`;
+    const fallback2 = `Varför tror du att det hängde ihop med ${topic}?`;
+    const fallback3 = `Vad hade du gjort som nästa steg?`;
 
     if (rq.length >= 3) rq = rq.slice(0, 3);
     while (rq.length < 3) {
@@ -264,22 +252,8 @@ Skriv chapter_text inom ${minWords}–${maxWords} ord. Hellre lite kort än för
       else rq.push(fallback3);
     }
 
-    const chapterText = safeStr(parsed.chapter_text || "");
-    const summaryForNext = safeStr(parsed.worldstate?.summary_for_next || "STATE: {}");
+    const summaryForNext = safeStr(parsed.worldstate?.summary_for_next || "").trim() || "STATE: {}";
 
-    // Bygg previousChapters om frontend inte gör det robust
-    const prevChapters = safeArr(incomingWorldState.previousChapters || []);
-    const nextPrevChapters = prevChapters.slice();
-
-    // Spara en kort summary “som minne” (vi använder summary_for_next som källa)
-    // För att inte blåsa upp payloaden håller vi bara senaste 12.
-    nextPrevChapters.push({
-      chapterIndex,
-      short_summary: summaryForNext,
-    });
-    while (nextPrevChapters.length > 12) nextPrevChapters.shift();
-
-    // Output till frontend (stabil signatur)
     const responseJson = {
       chapterIndex,
       chapterText,
@@ -287,17 +261,14 @@ Skriv chapter_text inom ${minWords}–${maxWords} ord. Hellre lite kort än för
       worldstate: {
         chapterIndex,
         summary_for_next: summaryForNext,
-        previousChapters: nextPrevChapters,
+        previousChapters: safeArr(incomingWorldState.previousChapters || []),
       },
     };
 
     return new Response(JSON.stringify(responseJson), { status: 200, headers: corsHeaders });
   } catch (err) {
     console.error("Oväntat fel i bnschool_generate:", err);
-    return new Response(JSON.stringify({ error: "Internt fel i bnschool_generate", details: String(err) }), {
-      status: 500,
-      headers: corsHeaders,
-    });
+    return new Response(JSON.stringify({ error: "Internt fel i bnschool_generate", details: String(err) }), { status: 500, headers: corsHeaders });
   }
 }
 
