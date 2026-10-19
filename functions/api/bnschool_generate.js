@@ -132,7 +132,7 @@ async function callClaude(apiKey, system, userPayload) {
         },
         body: JSON.stringify({
           model: MODEL,
-          max_tokens: 3000,
+          max_tokens: 8000,
           system,
           messages: [{ role: "user", content: JSON.stringify(userPayload) }],
         }),
@@ -140,7 +140,8 @@ async function callClaude(apiKey, system, userPayload) {
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
         console.error("Anthropic-fel:", res.status, JSON.stringify(data).slice(0, 500));
-        lastErr = new Error("anthropic_" + res.status);
+        const errType = safeStr(data && data.error && data.error.type);
+        lastErr = new Error("anthropic_" + res.status + (errType ? "_" + errType : ""));
         if (res.status === 429 || res.status >= 500) continue; // försök igen en gång
         lastErr.fatal = true;
         break;
@@ -152,7 +153,7 @@ async function callClaude(apiKey, system, userPayload) {
       const parsed = extractJson(text);
       if (parsed && typeof parsed.chapter_text === "string" && parsed.chapter_text.trim()) return parsed;
       console.error("Kunde inte tolka svar, stop_reason:", data.stop_reason);
-      lastErr = new Error("parse_failed");
+      lastErr = new Error("parse_failed_" + safeStr(data.stop_reason));
     } catch (e) {
       lastErr = e;
     } finally {
@@ -369,7 +370,11 @@ Svara ENDAST med ren JSON, utan markdown och utan text före eller efter:
       parsed = await callClaude(apiKey, systemPrompt, userPayload);
     } catch (e) {
       console.error("Generering misslyckades:", String(e));
-      return reply(502, { error: "Sagomotorn svarade inte just nu. Försök igen om en stund." }, origin);
+      return reply(
+        502,
+        { error: "Sagomotorn svarade inte just nu. Försök igen om en stund.", code: String((e && e.message) || e).slice(0, 80) },
+        origin
+      );
     }
 
     const chapterText = safeStr(parsed.chapter_text).trim();
