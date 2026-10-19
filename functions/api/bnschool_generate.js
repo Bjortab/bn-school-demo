@@ -142,6 +142,8 @@ async function callClaude(apiKey, system, userPayload) {
         console.error("Anthropic-fel:", res.status, JSON.stringify(data).slice(0, 500));
         const errType = safeStr(data && data.error && data.error.type);
         lastErr = new Error("anthropic_" + res.status + (errType ? "_" + errType : ""));
+        // TILLFÄLLIGT för felsökning: Anthropics felmeddelande. Ta bort före pilot.
+        lastErr.detail = safeStr(data && data.error && data.error.message).slice(0, 240);
         if (res.status === 429 || res.status >= 500) continue; // försök igen en gång
         lastErr.fatal = true;
         break;
@@ -372,7 +374,7 @@ Svara ENDAST med ren JSON, utan markdown och utan text före eller efter:
       console.error("Generering misslyckades:", String(e));
       return reply(
         502,
-        { error: "Sagomotorn svarade inte just nu. Försök igen om en stund.", code: String((e && e.message) || e).slice(0, 80) },
+        { error: "Sagomotorn svarade inte just nu. Försök igen om en stund.", code: String((e && e.message) || e).slice(0, 80), detail: String((e && e.detail) || "") },
         origin
       );
     }
