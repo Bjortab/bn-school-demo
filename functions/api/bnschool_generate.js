@@ -116,7 +116,7 @@ function extractJson(text) {
   return null;
 }
 
-async function callClaude(apiKey, system, userPayload) {
+async function callClaude(apiKey, system, userPayload, workspaceId) {
   let lastErr = new Error("okänt fel");
   for (let attempt = 0; attempt < 2; attempt++) {
     const ctrl = new AbortController();
@@ -129,6 +129,8 @@ async function callClaude(apiKey, system, userPayload) {
           "content-type": "application/json",
           "x-api-key": apiKey,
           "anthropic-version": "2023-06-01",
+          // Behövs bara om nyckeln inte är knuten till en arbetsyta (organisationsnyckel)
+          ...(workspaceId ? { "anthropic-workspace-id": workspaceId } : {}),
         },
         body: JSON.stringify({
           model: MODEL,
@@ -142,8 +144,6 @@ async function callClaude(apiKey, system, userPayload) {
         console.error("Anthropic-fel:", res.status, JSON.stringify(data).slice(0, 500));
         const errType = safeStr(data && data.error && data.error.type);
         lastErr = new Error("anthropic_" + res.status + (errType ? "_" + errType : ""));
-        // TILLFÄLLIGT för felsökning: Anthropics felmeddelande. Ta bort före pilot.
-        lastErr.detail = safeStr(data && data.error && data.error.message).slice(0, 240);
         if (res.status === 429 || res.status >= 500) continue; // försök igen en gång
         lastErr.fatal = true;
         break;
@@ -323,7 +323,8 @@ FAKTA (facts_to_weave)
 FAKTAREGLER (VIKTIGT – eleven ska lära sig detta utan att märka det, så fel fakta fastnar lika bra som rätt)
 - Använd BARA lärarens fakta som kunskap i sagan. Hitta inte på årtal, siffror, namn, platser eller vetenskapliga eller historiska påståenden.
 - Behöver berättelsen fler detaljer, håll dem uppenbart påhittade och sagolika (en talande räv, en trollad dörr), så att eleven inte tar dem för fakta.
-- Låt fakta komma fram genom handling, dialog eller något eleven ser och gör, med samma innebörd som i lärarens text.
+- Låt fakta komma fram genom att något händer: något eleven ser, hör eller gör, med samma innebörd som i lärarens text. Låt ingen gestalt hålla en föreläsning eller ramsa upp fakta.
+- Påhittade personer, platser och föremål får aldrig presenteras som verkliga eller historiska. Knyt inte en påhittad person till ett verkligt föremål eller en verklig plats så att det låter som historia, till exempel en runsten som "minns" en påhittad person. Gör det uppenbart sagolikt eller markera det med "enligt sagan".
 - Är du osäker på ett påstående, skriv det inte.
 
 RELIGION OCH LIVSÅSKÅDNING
@@ -333,10 +334,12 @@ UPPREPA INTE
 - Händelserna i beat_log har REDAN hänt. Upprepa inte dessa scener, och återanvänd inte samma gestalter, föremål eller knep bara för att de redan är etablerade. Låt kapitlet föra berättelsen framåt.
 
 REFLEKTIONSFRÅGOR (EXAKT 3)
-- Måste vara svarbara utifrån chapter_text.
-1) Fakta (vad hände)
-2) Förståelse (varför)
-3) Personlig (vad hade du gjort)
+- Alla ska kunna besvaras utifrån chapter_text.
+1) Fakta: prövar en av lärarens fakta som vävdes in i kapitlet (vad, vem eller var)
+2) Förståelse: varför eller hur, om en av lärarens fakta
+3) Personlig: vad hade du gjort
+- Fråga 1 och 2 ska pröva lärarens fakta, aldrig påhittade personer, namn eller händelser i berättelsen.
+- Är facts_to_weave tom, pröva lärarens ämne (teacher_mission) i stället.
 
 LÄNGD
 - ${minWords}-${maxWords} ord för chapter_text.
@@ -369,12 +372,12 @@ Svara ENDAST med ren JSON, utan markdown och utan text före eller efter:
 
     let parsed;
     try {
-      parsed = await callClaude(apiKey, systemPrompt, userPayload);
+      parsed = await callClaude(apiKey, systemPrompt, userPayload, safeStr(env.ANTHROPIC_WORKSPACE_ID).trim());
     } catch (e) {
       console.error("Generering misslyckades:", String(e));
       return reply(
         502,
-        { error: "Sagomotorn svarade inte just nu. Försök igen om en stund.", code: String((e && e.message) || e).slice(0, 80), detail: String((e && e.detail) || "") },
+        { error: "Sagomotorn svarade inte just nu. Försök igen om en stund.", code: String((e && e.message) || e).slice(0, 80) },
         origin
       );
     }
