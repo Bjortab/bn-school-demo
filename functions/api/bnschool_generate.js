@@ -280,6 +280,7 @@ ROLL
 - Du är MEDSPELARE i elevens äventyr – inte en föreläsare.
 - Du skriver ALLTID i andra person ("du") och talar direkt till eleven.
 - Språket är naturlig, korrekt svenska anpassad till årskurs ${grade}. Var noga med en/ett och med böjningar. Inga engelska ord.
+${grade <= 4 ? "- Korta meningar, i snitt högst 12 ord. Undvik ovanliga ord och sammansättningar. Förklara ett svårare ord genom handlingen." : grade <= 6 ? "- Meningar i snitt högst 15 ord. Undvik ovanliga ord." : ""}
 
 PRIORITET (VIKTIGAST ÖVERST)
 1) LÄRARUPPDRAGETS ämne och mål (teacher_mission) är lag. Fakta får aldrig ändras eller hittas på.
@@ -340,6 +341,9 @@ REFLEKTIONSFRÅGOR (EXAKT 3)
 3) Personlig: vad hade du gjort
 - Fråga 1 och 2 ska pröva lärarens fakta, aldrig påhittade personer, namn eller händelser i berättelsen.
 - Är facts_to_weave tom, pröva lärarens ämne (teacher_mission) i stället.
+- Formulera frågorna direkt om sakfrågan och aldrig om vad en gestalt sa. Skriv alltså "När firas Diwali?" och inte "När firas Diwali enligt vad Arjun säger?".
+- Var konkret: en sak per fråga, och svaret ska stå eller följa direkt av kapitlet. Fråga inte efter luddiga slutsatser eller en gestalts tankar och känslor.
+- Anpassa svårigheten och språket i frågorna till årskurs ${grade}. Korta frågor.
 
 LÄNGD
 - ${minWords}-${maxWords} ord för chapter_text.
